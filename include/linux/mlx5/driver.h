@@ -515,6 +515,7 @@ struct mlx5_sf_dev_table;
 struct mlx5_sf_hw_table;
 struct mlx5_sf_table;
 struct mlx5_crypto_dek_priv;
+struct mlx5_nisp;
 
 struct mlx5_rate_limit {
 	u32			rate;
@@ -824,6 +825,7 @@ struct mlx5_core_dev {
 #endif
 	u64 num_ipsec_offloads;
 	struct mlx5_sd          *sd;
+	struct mlx5_nisp        *nisp;
 };
 
 struct mlx5_db {

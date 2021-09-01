@@ -1223,6 +1223,7 @@ enum mlx5_cap_type {
 	MLX5_CAP_DEV_EVENT = 0x14,
 	MLX5_CAP_IPSEC,
 	MLX5_CAP_CRYPTO = 0x1a,
+	MLX5_CAP_NISP = 0x1e,
 	MLX5_CAP_MACSEC = 0x1f,
 	MLX5_CAP_GENERAL_2 = 0x20,
 	MLX5_CAP_PORT_SELECTION = 0x25,
@@ -1434,6 +1435,9 @@ enum mlx5_qcam_feature_groups {
 
 #define MLX5_CAP_MACSEC(mdev, cap)\
 	MLX5_GET(macsec_cap, (mdev)->caps.hca[MLX5_CAP_MACSEC]->cur, cap)
+
+#define MLX5_CAP_NISP(mdev, cap)\
+	MLX5_GET(nisp_cap, (mdev)->caps.hca[MLX5_CAP_NISP]->cur, cap)
 
 enum {
 	MLX5_CMD_STAT_OK			= 0x0,

@@ -280,6 +280,12 @@ int mlx5_query_hca_caps(struct mlx5_core_dev *dev)
 			return err;
 	}
 
+	if (MLX5_CAP_GEN(dev, nisp)) {
+		err = mlx5_core_get_caps(dev, MLX5_CAP_NISP);
+		if (err)
+			return err;
+	}
+
 	return 0;
 }
 
