@@ -7,11 +7,13 @@
 #include "../nisp.h"
 #include "lib/crypto.h"
 #include "en_accel/nisp.h"
+#include "en_accel/nisp_fs.h"
 
 MODULE_IMPORT_NS(NETDEV_PRIVATE);
 
-struct mlx5e_nisp {
-	struct psp_dev *psp;
+struct mlx5e_nisp_sa_entry {
+	struct mlx5e_accel_nisp_rule *nisp_rule;
+	u32 enc_key_id;
 };
 
 static int
@@ -55,7 +57,7 @@ mlx5e_psp_rx_spi_alloc(struct psp_dev *psd, u32 version,
 	assoc->spi = cpu_to_be32(key_spi.spi);
 	if (!mnisp->key_index_inited) {
 		mnisp->key_index = (key_spi.spi >> 31) & 0x1;
-		mnisp->key_gen_arr[mnisp->key_index] = mnisp->key_gen;
+		mnisp->key_gen_arr[mnisp->key_index] = psd->generation;
 		mnisp->key_index_inited = true;
 	}
 
@@ -65,19 +67,45 @@ mlx5e_psp_rx_spi_alloc(struct psp_dev *psd, u32 version,
 	return err;
 }
 
+struct nisp_key {
+	u32 id;
+};
+
 static int mlx5e_psp_assoc_add(struct psp_dev *psd, struct psp_assoc *pas,
-			      struct netlink_ext_ack *extack)
+			       struct netlink_ext_ack *extack)
 {
 	struct mlx5e_priv *priv = netdev_priv(psd->main_netdev);
+	struct mlx5_core_dev *mdev = priv->mdev;
+	struct mlx5e_nisp *nisp = priv->nisp;
+	struct psp_key_parsed *tx = &pas->tx;
+	struct nisp_key *nkey;
+	int err;
 
-	mlx5_core_dbg(priv->mdev, "PSP assoc add: rx: %u, tx: %u\n",
-		      be32_to_cpu(pas->rx.spi), be32_to_cpu(pas->tx.spi));
+	mdev = priv->mdev;
+	nkey = (struct nisp_key *)pas->drv_data;
 
-	return -EINVAL;
+	err = mlx5_create_encryption_key(mdev, tx->key,
+					 PSP_V0_KEY,
+					 MLX5_ACCEL_OBJ_NISP_KEY,
+					 &nkey->id);
+	if (err) {
+		mlx5_core_err(mdev, "Failed to create encryption key (err = %d)\n", err);
+		return err;
+	}
+
+	atomic_inc(&nisp->tx_key_cnt);
+	return 0;
 }
 
-static void mlx5e_psp_assoc_del(struct psp_dev *psd, struct psp_assoc *tas)
+static void mlx5e_psp_assoc_del(struct psp_dev *psd, struct psp_assoc *pas)
 {
+	struct mlx5e_priv *priv = netdev_priv(psd->main_netdev);
+	struct mlx5e_nisp *nisp = priv->nisp;
+	struct nisp_key *nkey;
+
+	nkey = (struct nisp_key *)pas->drv_data;
+	mlx5_destroy_encryption_key(priv->mdev, nkey->id);
+	atomic_dec(&nisp->tx_key_cnt);
 }
 
 static struct psp_dev_ops mlx5_psp_ops = {
@@ -116,7 +144,9 @@ void mlx5e_nisp_register(struct mlx5e_priv *priv)
 int mlx5e_nisp_init(struct mlx5e_priv *priv)
 {
 	struct mlx5_core_dev *mdev = priv->mdev;
+	struct mlx5e_nisp_fs *fs;
 	struct mlx5e_nisp *nisp;
+	int err;
 
 	if (!mlx5_is_nisp_device(mdev)) {
 		mlx5_core_dbg(mdev, "NISP offload not supported\n");
@@ -143,8 +173,21 @@ int mlx5e_nisp_init(struct mlx5e_priv *priv)
 		return -ENOMEM;
 
 	priv->nisp = nisp;
+	fs = mlx5e_accel_nisp_fs_init(priv);
+	if (IS_ERR(fs)) {
+		err = PTR_ERR(fs);
+		goto out_err;
+	}
+
+	nisp->fs = fs;
+
 	mlx5_core_dbg(priv->mdev, "NISP attached to netdevice\n");
 	return 0;
+
+out_err:
+	priv->nisp = NULL;
+	kfree(nisp);
+	return err;
 }
 
 void mlx5e_nisp_cleanup(struct mlx5e_priv *priv)
@@ -154,6 +197,8 @@ void mlx5e_nisp_cleanup(struct mlx5e_priv *priv)
 	if (!nisp)
 		return;
 
+	WARN_ON(atomic_read(&nisp->tx_key_cnt));
+	mlx5e_accel_nisp_fs_cleanup(nisp->fs);
 	priv->nisp = NULL;
 	kfree(nisp);
 }

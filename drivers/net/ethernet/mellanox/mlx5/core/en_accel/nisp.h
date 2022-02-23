@@ -7,6 +7,13 @@
 #include <net/psp/types.h>
 #include "en.h"
 
+struct mlx5e_nisp {
+	struct psp_dev *psp;
+	struct mlx5e_nisp_fs *fs;
+	atomic_t tx_key_cnt;
+	__wsum psphdrsum;
+};
+
 struct nisp_key_spi {
 	u32 spi;
 	union {

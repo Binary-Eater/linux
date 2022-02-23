@@ -11,7 +11,6 @@ struct mlx5_nisp {
 	struct mlx5_core_dev *mdev;
 	/* Rx manage */
 	u16 key_gen_arr[MLX5_NISP_MASTER_KEY_NUM];
-	u16 key_gen;
 	u16 key_index;
 	bool key_index_inited : 1;
 };
