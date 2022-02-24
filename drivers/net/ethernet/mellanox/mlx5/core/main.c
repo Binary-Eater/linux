@@ -648,6 +648,9 @@ static int handle_hca_cap(struct mlx5_core_dev *dev, void *set_ctx)
 		MLX5_SET(cmd_hca_cap, set_hca_cap, log_max_current_uc_list,
 			 ilog2(max_uc_list));
 
+	if (MLX5_CAP_GEN_MAX(dev, nisp))
+		MLX5_SET(cmd_hca_cap, set_hca_cap, nisp, 1);
+
 	return set_caps(dev, set_ctx, MLX5_SET_HCA_CAP_OP_MOD_GENERAL_DEVICE);
 }
 

@@ -43,6 +43,7 @@
 #include "en.h"
 #include "en/txrx.h"
 #include "en_accel/nisp_fs.h"
+#include "en_accel/nisp_rxtx.h"
 
 #if IS_ENABLED(CONFIG_GENEVE)
 #include <net/geneve.h>
@@ -114,6 +115,9 @@ struct mlx5e_accel_tx_state {
 #ifdef CONFIG_MLX5_EN_IPSEC
 	struct mlx5e_accel_tx_ipsec_state ipsec;
 #endif
+#ifdef CONFIG_MLX5_EN_PSP
+	struct mlx5e_accel_tx_nisp_state nisp_st;
+#endif
 };
 
 static inline bool mlx5e_accel_tx_begin(struct net_device *dev,
@@ -130,6 +134,13 @@ static inline bool mlx5e_accel_tx_begin(struct net_device *dev,
 		if (unlikely(!mlx5e_ktls_handle_tx_skb(dev, sq, skb,
 						       &state->tls)))
 			return false;
+#endif
+
+#ifdef CONFIG_MLX5_EN_PSP
+	if (mlx5e_psp_is_offload(skb, dev)) {
+		if (unlikely(!mlx5e_nisp_handle_tx_skb(dev, skb, &state->nisp_st)))
+			return false;
+	}
 #endif
 
 #ifdef CONFIG_MLX5_EN_IPSEC
@@ -152,8 +163,14 @@ static inline bool mlx5e_accel_tx_begin(struct net_device *dev,
 }
 
 static inline unsigned int mlx5e_accel_tx_ids_len(struct mlx5e_txqsq *sq,
+						  struct sk_buff *skb,
 						  struct mlx5e_accel_tx_state *state)
 {
+#ifdef CONFIG_MLX5_EN_PSP
+	if (mlx5e_psp_is_offload_state(&state->nisp_st))
+		return mlx5e_nisp_tx_ids_len(&state->nisp_st);
+#endif
+
 #ifdef CONFIG_MLX5_EN_IPSEC
 	if (test_bit(MLX5E_SQ_STATE_IPSEC, &sq->state))
 		return mlx5e_ipsec_tx_ids_len(&state->ipsec);
@@ -167,8 +184,14 @@ static inline unsigned int mlx5e_accel_tx_ids_len(struct mlx5e_txqsq *sq,
 
 static inline void mlx5e_accel_tx_eseg(struct mlx5e_priv *priv,
 				       struct sk_buff *skb,
+				       struct mlx5e_accel_tx_state *accel,
 				       struct mlx5_wqe_eth_seg *eseg, u16 ihs)
 {
+#ifdef CONFIG_MLX5_EN_PSP
+	if (mlx5e_psp_is_offload_state(&accel->nisp_st))
+		mlx5e_nisp_tx_build_eseg(priv, skb, &accel->nisp_st, eseg);
+#endif
+
 #ifdef CONFIG_MLX5_EN_IPSEC
 	if (xfrm_offload(skb))
 		mlx5e_ipsec_tx_build_eseg(priv, skb, eseg);
@@ -192,6 +215,11 @@ static inline void mlx5e_accel_tx_finish(struct mlx5e_txqsq *sq,
 {
 #ifdef CONFIG_MLX5_EN_TLS
 	mlx5e_ktls_handle_tx_wqe(&wqe->ctrl, &state->tls);
+#endif
+
+#ifdef CONFIG_MLX5_EN_PSP
+	if (mlx5e_psp_is_offload_state(&state->nisp_st))
+		mlx5e_nisp_handle_tx_wqe(wqe, &state->nisp_st, inlseg);
 #endif
 
 #ifdef CONFIG_MLX5_EN_IPSEC
