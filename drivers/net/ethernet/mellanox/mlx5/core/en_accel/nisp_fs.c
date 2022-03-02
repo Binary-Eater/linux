@@ -469,9 +469,6 @@ static void accel_nisp_fs_cleanup_rx(struct mlx5e_nisp_fs *fs)
 	if (!fs->rx_fs)
 		return;
 
-	for (i = 0; i < ACCEL_FS_NISP_NUM_TYPES; i++)
-		accel_nisp_fs_rx_ft_put(fs, i);
-
 	accel_nisp = fs->rx_fs;
 	for (i = 0; i < ACCEL_FS_NISP_NUM_TYPES; i++) {
 		fs_prot = &accel_nisp->fs_prot[i];
@@ -497,11 +494,48 @@ static int accel_nisp_fs_init_rx(struct mlx5e_nisp_fs *fs)
 		mutex_init(&fs_prot->prot_mutex);
 	}
 
-	for (i = 0; i < ACCEL_FS_NISP_NUM_TYPES; i++)
-		accel_nisp_fs_rx_ft_get(fs, ACCEL_FS_NISP4);
-
 	fs->rx_fs = accel_nisp;
+
 	return 0;
+}
+
+void  mlx5_accel_nisp_fs_cleanup_rx_tables(struct mlx5e_priv *priv)
+{
+	int i;
+
+	if (!priv->nisp)
+		return;
+
+	for (i = 0; i < ACCEL_FS_NISP_NUM_TYPES; i++)
+		accel_nisp_fs_rx_ft_put(priv->nisp->fs, i);
+}
+
+int  mlx5_accel_nisp_fs_init_rx_tables(struct mlx5e_priv *priv)
+{
+	enum accel_fs_nisp_type i;
+	struct mlx5e_nisp_fs *fs;
+	int err;
+
+	if (!priv->nisp)
+		return 0;
+
+	fs = priv->nisp->fs;
+	for (i = 0; i < ACCEL_FS_NISP_NUM_TYPES; i++) {
+		err = accel_nisp_fs_rx_ft_get(fs, i);
+		if (err)
+			goto out_err;
+	}
+
+	return 0;
+
+out_err:
+	i--;
+	while (i >= 0) {
+		accel_nisp_fs_rx_ft_put(fs, i);
+		--i;
+	}
+
+	return err;
 }
 
 static int accel_nisp_fs_tx_create_ft_table(struct mlx5e_nisp_fs *fs)
