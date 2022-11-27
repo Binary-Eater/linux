@@ -15,6 +15,12 @@
 #include "en_accel/nisp.h"
 #include "lib/psp_defs.h"
 
+enum {
+	MLX5E_NISP_OFFLOAD_RX_SYNDROME_DECRYPTED,
+	MLX5E_NISP_OFFLOAD_RX_SYNDROME_AUTH_FAILED,
+	MLX5E_NISP_OFFLOAD_RX_SYNDROME_BAD_TRAILER,
+};
+
 static void mlx5e_nisp_set_swp(struct sk_buff *skb,
 			       struct mlx5e_accel_tx_nisp_state *nisp_st,
 			       struct mlx5_wqe_eth_seg *eseg)
@@ -111,6 +117,97 @@ static bool mlx5e_nisp_set_state(struct mlx5e_priv *priv,
 out:
 	rcu_read_unlock();
 	return ret;
+}
+
+void mlx5e_nisp_csum_complete(struct net_device *netdev, struct sk_buff* skb)
+{
+	struct mlx5e_priv *priv = netdev_priv(netdev);
+	struct mlx5e_nisp *nisp = priv->nisp;
+	__wsum csumdiff;
+
+	goto trim_skb;
+	skb->csum = csum_block_sub(skb->csum, nisp->psphdrsum, PSP_ENCAP_HLEN);
+	csumdiff = csum_partial(skb->data + skb->len - PSP_ICV_LENGTH, PSP_ENCAP_HLEN, 0);
+	skb->csum = csum_block_sub(skb->csum, csumdiff, skb->len - PSP_ICV_LENGTH);
+trim_skb:
+	pskb_trim(skb, skb->len - PSP_ICV_LENGTH);
+}
+
+/* Receive handler for PSP packets.
+ *
+ * Presently it accepts only already-authenticated packets and does not
+ * support optional fields, such as virtualization cookies.
+ */
+static int psp_rcv(struct net_device *netdev, struct sk_buff *skb)
+{
+	struct ethhdr *eth = (struct ethhdr *)(skb->data);
+	struct mlx5e_priv *priv = netdev_priv(netdev);
+	struct mlx5_nisp *mnisp = priv->mdev->nisp;
+	struct mlx5e_nisp *nisp = priv->nisp;
+	const struct psphdr *psph;
+	struct psp_skb_ext *pse;
+	struct ipv6hdr *ipv6h;
+	int depth = 0;
+	__be32 spi;
+	u8 *buff;
+	u16 gen;
+	u8 ver;
+
+	__vlan_get_protocol(skb, eth->h_proto, &depth);
+	ipv6h = (struct ipv6hdr *)(skb->data + depth);
+	depth += sizeof(*ipv6h);
+	buff = kzalloc(depth, GFP_KERNEL);
+	if(!buff)
+		return -ENOMEM;
+	nisp->psphdrsum = csum_partial(skb->data + depth, PSP_ENCAP_HLEN, 0);
+	psph = (const struct psphdr *) (skb->data + depth + sizeof(struct udphdr));
+	spi = psph->spi;
+	gen = mnisp->key_gen_arr[(ntohl(psph->spi) >> 31) & 0x1];
+	ver = (psph->verfl >> 2) & 0xF;
+	if (unlikely(!pskb_may_pull(skb, PSP_ENCAP_HLEN)))
+		goto drop;
+
+	/* pull UDP+PSP headers and make adjustments (we actually supports only ipv6 at this point) */
+	ipv6h->nexthdr = psph->nexthdr;
+	ipv6h->payload_len =
+		htons(ntohs(ipv6h->payload_len) - PSP_ENCAP_HLEN - PSP_ICV_LENGTH);
+	skb_copy_from_linear_data(skb, buff, depth);
+	skb_pull(skb, PSP_ENCAP_HLEN);
+	skb_copy_to_linear_data(skb, buff, depth);
+	pse = skb_ext_add_inplace(skb, SKB_EXT_PSP);
+	if (!pse)
+		goto drop;
+
+	pse->generation = gen;
+	pse->spi = spi;
+	pse->version = ver;
+
+	kfree(buff);
+	return 0;
+drop:
+	kfree_skb_reason(skb, SKB_DROP_REASON_PSP_OUTPUT);
+	kfree(buff);
+	return 0;
+}
+
+void mlx5e_nisp_offload_handle_rx_skb(struct net_device *netdev, struct sk_buff *skb,
+				      struct mlx5_cqe64 *cqe)
+{
+	u32 nisp_meta_data = be32_to_cpu(cqe->ft_metadata);
+
+	/* TBD: report errors as SW counters to ethtool, any further handling ? */
+	switch (MLX5_NISP_METADATA_SYNDROM(nisp_meta_data)) {
+	case MLX5E_NISP_OFFLOAD_RX_SYNDROME_DECRYPTED:
+		psp_rcv(netdev, skb);
+		skb->decrypted = 1;
+		break;
+	case MLX5E_NISP_OFFLOAD_RX_SYNDROME_AUTH_FAILED:
+		break;
+	case MLX5E_NISP_OFFLOAD_RX_SYNDROME_BAD_TRAILER:
+		break;
+	default:
+		break;
+	}
 }
 
 void mlx5e_nisp_tx_build_eseg(struct mlx5e_priv *priv, struct sk_buff *skb,

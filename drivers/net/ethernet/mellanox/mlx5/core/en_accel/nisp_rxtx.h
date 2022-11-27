@@ -10,6 +10,11 @@
 #include "en.h"
 #include "en/txrx.h"
 
+/* Bit30: NISP marker, Bit29-23: NISP syndrome, Bit22-0: NISP obj id */
+#define MLX5_NISP_METADATA_MARKER(metadata)  ((((metadata) >> 30) & 0x3) == 0x3)
+#define MLX5_NISP_METADATA_SYNDROM(metadata) (((metadata) >> 23) & GENMASK(6, 0))
+#define MLX5_NISP_METADATA_HANDLE(metadata)  ((metadata) & GENMASK(22, 0))
+
 struct mlx5e_accel_tx_nisp_state {
 	u32 tailen;
 	u32 keyid;
@@ -74,6 +79,16 @@ static inline unsigned int mlx5e_nisp_tx_ids_len(struct mlx5e_accel_tx_nisp_stat
 {
 	return nisp_st->tailen;
 }
+
+static inline bool mlx5e_nisp_is_rx_flow(struct mlx5_cqe64 *cqe)
+{
+	return MLX5_NISP_METADATA_MARKER(be32_to_cpu(cqe->ft_metadata));
+}
+
+void mlx5e_nisp_offload_handle_rx_skb(struct net_device *netdev, struct sk_buff *skb,
+				      struct mlx5_cqe64 *cqe);
+
+void mlx5e_nisp_csum_complete(struct net_device *netdev, struct sk_buff *skb);
 #else
 static inline bool mlx5e_psp_is_offload_state(struct mlx5e_accel_tx_nisp_state* nisp_state)
 {
@@ -91,5 +106,19 @@ static inline bool mlx5e_nisp_txwqe_build_eseg_csum(struct mlx5e_txqsq *sq, stru
 {
 	return false;
 }
+
+static inline bool mlx5e_nisp_is_rx_flow(struct mlx5_cqe64 *cqe)
+{
+	return false;
+}
+
+static inline void mlx5e_nisp_offload_handle_rx_skb(struct net_device *netdev,
+						    struct sk_buff *skb,
+						    struct mlx5_cqe64 *cqe)
+{
+	return;
+}
+
+static inline void mlx5e_nisp_csum_complete(struct net_device *netdev, struct sk_buff *skb) { }
 #endif
 #endif
