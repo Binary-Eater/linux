@@ -21,6 +21,7 @@ struct mlx5e_nisp_tx {
 	struct mlx5_flow_handle *rule;
 	struct mutex mutex; /* Protect NISP TX steering */
 	u32 refcnt;
+	struct mlx5_fc *tx_counter;
 };
 
 enum accel_nisp_rule_action {
@@ -42,7 +43,9 @@ struct mlx5e_accel_nisp_rule {
 struct mlx5e_nisp_rx_err {
 	struct mlx5_flow_table *ft;
 	struct mlx5_flow_handle *rule;
-	struct mlx5_flow_handle *drop_rule;
+	struct mlx5_flow_handle *auth_fail_rule;
+	struct mlx5_flow_handle *err_rule;
+	struct mlx5_flow_handle *bad_rule;
 	struct mlx5_modify_hdr *copy_modify_hdr;
 };
 
@@ -59,6 +62,10 @@ struct mlx5e_accel_fs_nisp_prot {
 
 struct mlx5e_accel_fs_nisp {
 	struct mlx5e_accel_fs_nisp_prot fs_prot[ACCEL_FS_NISP_NUM_TYPES];
+	struct mlx5_fc *rx_counter;
+	struct mlx5_fc *rx_auth_fail_counter;
+	struct mlx5_fc *rx_err_counter;
+	struct mlx5_fc *rx_bad_counter;
 };
 
 struct mlx5e_nisp_fs {
@@ -81,9 +88,19 @@ static enum mlx5_traffic_types fs_nisp2tt(enum accel_fs_nisp_type i)
 static void accel_nisp_fs_rx_err_del_rules(struct mlx5e_nisp_fs *fs,
 					  struct mlx5e_nisp_rx_err *rx_err)
 {
-	if (rx_err->drop_rule) {
-		mlx5_del_flow_rules(rx_err->drop_rule);
-		rx_err->drop_rule = NULL;
+	if (rx_err->bad_rule) {
+		mlx5_del_flow_rules(rx_err->bad_rule);
+		rx_err->bad_rule = NULL;
+	}
+
+	if (rx_err->err_rule) {
+		mlx5_del_flow_rules(rx_err->err_rule);
+		rx_err->err_rule = NULL;
+	}
+
+	if (rx_err->auth_fail_rule) {
+		mlx5_del_flow_rules(rx_err->auth_fail_rule);
+		rx_err->auth_fail_rule = NULL;
 	}
 
 	if (rx_err->rule) {
@@ -126,6 +143,7 @@ static int accel_nisp_fs_rx_err_add_rule(struct mlx5e_nisp_fs *fs,
 {
 	u8 action[MLX5_UN_SZ_BYTES(set_add_copy_action_in_auto)] = {};
 	struct mlx5_core_dev *mdev = fs->mdev;
+	struct mlx5_flow_destination dest[2];
 	struct mlx5_flow_act flow_act = {};
 	struct mlx5_modify_hdr *modify_hdr;
 	struct mlx5_flow_handle *fte;
@@ -156,10 +174,14 @@ static int accel_nisp_fs_rx_err_add_rule(struct mlx5e_nisp_fs *fs,
 	accel_nisp_setup_syndrome_match(spec, NISP_OK);
 	/* create fte */
 	flow_act.action = MLX5_FLOW_CONTEXT_ACTION_MOD_HDR |
-		MLX5_FLOW_CONTEXT_ACTION_FWD_DEST;
+			  MLX5_FLOW_CONTEXT_ACTION_FWD_DEST |
+			  MLX5_FLOW_CONTEXT_ACTION_COUNT;
 	flow_act.modify_hdr = modify_hdr;
-	fte = mlx5_add_flow_rules(rx_err->ft, spec, &flow_act,
-			&fs_prot->default_dest, 1);
+	dest[0].type = fs_prot->default_dest.type;
+	dest[0].ft = fs_prot->default_dest.ft;
+	dest[1].type = MLX5_FLOW_DESTINATION_TYPE_COUNTER;
+	dest[1].counter_id = mlx5_fc_id(fs->rx_fs->rx_counter);
+	fte = mlx5_add_flow_rules(rx_err->ft, spec, &flow_act, dest, 2);
 	if (IS_ERR(fte)) {
 		err = PTR_ERR(fte);
 		mlx5_core_err(mdev, "fail to add nisp rx err copy rule err=%d\n", err);
@@ -167,22 +189,66 @@ static int accel_nisp_fs_rx_err_add_rule(struct mlx5e_nisp_fs *fs,
 	}
 	rx_err->rule = fte;
 
-	/* add default drop rule */
+	/* add auth fail drop rule */
+	memset(spec, 0, sizeof(*spec));
+	memset(&flow_act, 0, sizeof(flow_act));
+	accel_nisp_setup_syndrome_match(spec, NISP_ICV_FAIL);
+	/* create fte */
+	flow_act.action = MLX5_FLOW_CONTEXT_ACTION_DROP | MLX5_FLOW_CONTEXT_ACTION_COUNT;
+	dest[0].type = MLX5_FLOW_DESTINATION_TYPE_COUNTER;
+	dest[0].counter_id = mlx5_fc_id(fs->rx_fs->rx_auth_fail_counter);
+	fte = mlx5_add_flow_rules(rx_err->ft, spec, &flow_act, dest, 1);
+	if (IS_ERR(fte)) {
+		err = PTR_ERR(fte);
+		mlx5_core_err(mdev, "fail to add nisp rx auth fail drop rule err=%d\n",
+			      err);
+		goto out_drop_rule;
+	}
+	rx_err->auth_fail_rule = fte;
+
+	/* add framing drop rule */
+	memset(spec, 0, sizeof(*spec));
+	memset(&flow_act, 0, sizeof(flow_act));
+	accel_nisp_setup_syndrome_match(spec, NISP_BAD_TRAILER);
+	/* create fte */
+	flow_act.action = MLX5_FLOW_CONTEXT_ACTION_DROP | MLX5_FLOW_CONTEXT_ACTION_COUNT;
+	dest[0].type = MLX5_FLOW_DESTINATION_TYPE_COUNTER;
+	dest[0].counter_id = mlx5_fc_id(fs->rx_fs->rx_err_counter);
+	fte = mlx5_add_flow_rules(rx_err->ft, spec, &flow_act, dest, 1);
+	if (IS_ERR(fte)) {
+		err = PTR_ERR(fte);
+		mlx5_core_err(mdev, "fail to add nisp rx framing err drop rule err=%d\n",
+			      err);
+		goto out_drop_auth_fail_rule;
+	}
+	rx_err->err_rule = fte;
+
+	/* add misc. errors drop rule */
 	memset(spec, 0, sizeof(*spec));
 	memset(&flow_act, 0, sizeof(flow_act));
 	/* create fte */
-	flow_act.action = MLX5_FLOW_CONTEXT_ACTION_DROP;
-	fte = mlx5_add_flow_rules(rx_err->ft, spec, &flow_act, NULL, 0);
+	flow_act.action = MLX5_FLOW_CONTEXT_ACTION_DROP | MLX5_FLOW_CONTEXT_ACTION_COUNT;
+	dest[0].type = MLX5_FLOW_DESTINATION_TYPE_COUNTER;
+	dest[0].counter_id = mlx5_fc_id(fs->rx_fs->rx_bad_counter);
+	fte = mlx5_add_flow_rules(rx_err->ft, spec, &flow_act, dest, 1);
 	if (IS_ERR(fte)) {
 		err = PTR_ERR(fte);
-		mlx5_core_err(mdev, "fail to add nisp rx err drop rule err=%d\n", err);
-		goto out_drop_rule;
+		mlx5_core_err(mdev, "fail to add nisp rx misc. err drop rule err=%d\n",
+			      err);
+		goto out_drop_error_rule;
 	}
-	rx_err->drop_rule = fte;
+	rx_err->bad_rule = fte;
+
 	rx_err->copy_modify_hdr = modify_hdr;
 
 	goto out_spec;
 
+out_drop_error_rule:
+	mlx5_del_flow_rules(rx_err->err_rule);
+	rx_err->err_rule = NULL;
+out_drop_auth_fail_rule:
+	mlx5_del_flow_rules(rx_err->auth_fail_rule);
+	rx_err->auth_fail_rule = NULL;
 out_drop_rule:
 	mlx5_del_flow_rules(rx_err->rule);
 	rx_err->rule = NULL;
@@ -470,6 +536,10 @@ static void accel_nisp_fs_cleanup_rx(struct mlx5e_nisp_fs *fs)
 		return;
 
 	accel_nisp = fs->rx_fs;
+	mlx5_fc_destroy(fs->mdev, accel_nisp->rx_bad_counter);
+	mlx5_fc_destroy(fs->mdev, accel_nisp->rx_err_counter);
+	mlx5_fc_destroy(fs->mdev, accel_nisp->rx_auth_fail_counter);
+	mlx5_fc_destroy(fs->mdev, accel_nisp->rx_counter);
 	for (i = 0; i < ACCEL_FS_NISP_NUM_TYPES; i++) {
 		fs_prot = &accel_nisp->fs_prot[i];
 		mutex_destroy(&fs_prot->prot_mutex);
@@ -483,7 +553,10 @@ static int accel_nisp_fs_init_rx(struct mlx5e_nisp_fs *fs)
 {
 	struct mlx5e_accel_fs_nisp_prot *fs_prot;
 	struct mlx5e_accel_fs_nisp *accel_nisp;
+	struct mlx5_core_dev *mdev = fs->mdev;
+	struct mlx5_fc *flow_counter;
 	enum accel_fs_nisp_type i;
+	int err;
 
 	accel_nisp = kzalloc(sizeof(*accel_nisp), GFP_KERNEL);
 	if (!accel_nisp)
@@ -494,9 +567,68 @@ static int accel_nisp_fs_init_rx(struct mlx5e_nisp_fs *fs)
 		mutex_init(&fs_prot->prot_mutex);
 	}
 
+	flow_counter = mlx5_fc_create(mdev, false);
+	if (IS_ERR(flow_counter)) {
+		mlx5_core_warn(mdev,
+				"fail to create nisp rx flow counter err(%ld)\n",
+				PTR_ERR(flow_counter));
+		err = PTR_ERR(flow_counter);
+		goto out_err;
+	}
+	accel_nisp->rx_counter = flow_counter;
+
+	flow_counter = mlx5_fc_create(mdev, false);
+	if (IS_ERR(flow_counter)) {
+		mlx5_core_warn(mdev,
+			       "fail to create nisp rx auth fail flow counter err(%ld)\n",
+			       PTR_ERR(flow_counter));
+		err = PTR_ERR(flow_counter);
+		goto out_counter_err;
+	}
+	accel_nisp->rx_auth_fail_counter = flow_counter;
+
+	flow_counter = mlx5_fc_create(mdev, false);
+	if (IS_ERR(flow_counter)) {
+		mlx5_core_warn(mdev,
+				"fail to create nisp rx error flow counter err(%ld)\n",
+				PTR_ERR(flow_counter));
+		err = PTR_ERR(flow_counter);
+		goto out_auth_fail_counter_err;
+	}
+	accel_nisp->rx_err_counter = flow_counter;
+
+	flow_counter = mlx5_fc_create(mdev, false);
+	if (IS_ERR(flow_counter)) {
+		mlx5_core_warn(mdev,
+			       "fail to create nisp rx auth fail flow counter err(%ld)\n",
+			       PTR_ERR(flow_counter));
+		err = PTR_ERR(flow_counter);
+		goto out_err_counter_err;
+	}
+	accel_nisp->rx_bad_counter = flow_counter;
+
 	fs->rx_fs = accel_nisp;
 
 	return 0;
+
+out_err_counter_err:
+	mlx5_fc_destroy(mdev, accel_nisp->rx_err_counter);
+	accel_nisp->rx_err_counter = NULL;
+out_auth_fail_counter_err:
+	mlx5_fc_destroy(mdev, accel_nisp->rx_auth_fail_counter);
+	accel_nisp->rx_auth_fail_counter = NULL;
+out_counter_err:
+	mlx5_fc_destroy(mdev, accel_nisp->rx_counter);
+	accel_nisp->rx_counter = NULL;
+out_err:
+	for (i = 0; i < ACCEL_FS_NISP_NUM_TYPES; i++) {
+		fs_prot = &accel_nisp->fs_prot[i];
+		mutex_destroy(&fs_prot->prot_mutex);
+	}
+	kfree(accel_nisp);
+	fs->rx_fs = NULL;
+
+	return err;
 }
 
 void  mlx5_accel_nisp_fs_cleanup_rx_tables(struct mlx5e_priv *priv)
@@ -542,6 +674,7 @@ static int accel_nisp_fs_tx_create_ft_table(struct mlx5e_nisp_fs *fs)
 {
 	int inlen = MLX5_ST_SZ_BYTES(create_flow_group_in);
 	struct mlx5_flow_table_attr ft_attr = {};
+	struct mlx5_flow_destination dest = {};
 	struct mlx5_core_dev *mdev = fs->mdev;
 	struct mlx5_flow_act flow_act = {};
 	u32 *in, *mc, *outer_headers_c;
@@ -590,8 +723,11 @@ static int accel_nisp_fs_tx_create_ft_table(struct mlx5e_nisp_fs *fs)
 	flow_act.crypto.type = MLX5_FLOW_CONTEXT_ENCRYPT_DECRYPT_TYPE_NISP;
 	flow_act.flags |= FLOW_ACT_NO_APPEND;
 	flow_act.action = MLX5_FLOW_CONTEXT_ACTION_ALLOW |
-			  MLX5_FLOW_CONTEXT_ACTION_CRYPTO_ENCRYPT;
-	rule = mlx5_add_flow_rules(ft, spec, &flow_act, NULL, 0);
+			  MLX5_FLOW_CONTEXT_ACTION_CRYPTO_ENCRYPT |
+			  MLX5_FLOW_CONTEXT_ACTION_COUNT;
+	dest.type = MLX5_FLOW_DESTINATION_TYPE_COUNTER;
+	dest.counter_id = mlx5_fc_id(tx_fs->tx_counter);
+	rule = mlx5_add_flow_rules(ft, spec, &flow_act, &dest, 1);
 	if (IS_ERR(rule)) {
 		err = PTR_ERR(rule);
 		mlx5_core_err(mdev, "PSP: fail to add psp tx flow rule, err = %d\n", err);
@@ -660,6 +796,7 @@ static void accel_nisp_fs_cleanup_tx(struct mlx5e_nisp_fs *fs)
 	if (!tx_fs)
 		return;
 
+	mlx5_fc_destroy(fs->mdev, tx_fs->tx_counter);
 	mutex_destroy(&tx_fs->mutex);
 	WARN_ON(tx_fs->refcnt);
 	kfree(tx_fs);
@@ -668,10 +805,13 @@ static void accel_nisp_fs_cleanup_tx(struct mlx5e_nisp_fs *fs)
 
 static int accel_nisp_fs_init_tx(struct mlx5e_nisp_fs *fs)
 {
+	struct mlx5_core_dev *mdev = fs->mdev;
 	struct mlx5_flow_namespace *ns;
+	struct mlx5_fc *flow_counter;
 	struct mlx5e_nisp_tx *tx_fs;
+	int err;
 
-	ns = mlx5_get_flow_namespace(fs->mdev,
+	ns = mlx5_get_flow_namespace(mdev,
 				     MLX5_FLOW_NAMESPACE_EGRESS_IPSEC);
 	if (!ns)
 		return -EOPNOTSUPP;
@@ -681,9 +821,56 @@ static int accel_nisp_fs_init_tx(struct mlx5e_nisp_fs *fs)
 		return -ENOMEM;
 
 	mutex_init(&tx_fs->mutex);
+	flow_counter = mlx5_fc_create(mdev, false);
+	if (IS_ERR(flow_counter)) {
+		mlx5_core_warn(mdev,
+				"fail to create nisp tx flow counter err(%ld)\n",
+				PTR_ERR(flow_counter));
+		err = PTR_ERR(flow_counter);
+		goto out_err;
+	}
+	tx_fs->tx_counter = flow_counter;
 	tx_fs->ns = ns;
 	fs->tx_fs = tx_fs;
 	return 0;
+
+out_err:
+	mutex_destroy(&tx_fs->mutex);
+	kfree(tx_fs);
+	return err;
+}
+
+void mlx5e_accel_nisp_fs_get_stats_fill(struct mlx5e_priv *priv, void *nisp_stats)
+{
+	struct mlx5e_nisp_stats *stats = (struct mlx5e_nisp_stats *)nisp_stats;
+	struct mlx5e_nisp_tx *tx_fs = priv->nisp->fs->tx_fs;
+	struct mlx5_core_dev *mdev = priv->mdev;
+	struct mlx5e_accel_fs_nisp *accel_nisp;
+
+	accel_nisp = (struct mlx5e_accel_fs_nisp *)priv->nisp->fs->rx_fs;
+
+	if (tx_fs->tx_counter)
+		mlx5_fc_query(mdev, tx_fs->tx_counter, &stats->psp_tx_pkts,
+			      &stats->psp_tx_bytes);
+
+	if (accel_nisp->rx_counter)
+		mlx5_fc_query(mdev, accel_nisp->rx_counter, &stats->psp_rx_pkts,
+			      &stats->psp_rx_bytes);
+
+	if (accel_nisp->rx_auth_fail_counter)
+		mlx5_fc_query(mdev, accel_nisp->rx_auth_fail_counter,
+			      &stats->psp_rx_pkts_auth_fail,
+			      &stats->psp_rx_bytes_auth_fail);
+
+	if (accel_nisp->rx_err_counter)
+		mlx5_fc_query(mdev, accel_nisp->rx_err_counter,
+			      &stats->psp_rx_pkts_frame_err,
+			      &stats->psp_rx_bytes_frame_err);
+
+	if (accel_nisp->rx_bad_counter)
+		mlx5_fc_query(mdev, accel_nisp->rx_bad_counter,
+			      &stats->psp_rx_pkts_drop,
+			      &stats->psp_rx_bytes_drop);
 }
 
 void mlx5_accel_nisp_fs_cleanup_tx_tables(struct mlx5e_priv *priv)

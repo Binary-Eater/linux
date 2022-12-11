@@ -108,11 +108,28 @@ static void mlx5e_psp_assoc_del(struct psp_dev *psd, struct psp_assoc *pas)
 	atomic_dec(&nisp->tx_key_cnt);
 }
 
+static void mlx5e_psp_get_stats(struct psp_dev *psd, struct psp_dev_stats *stats)
+{
+	struct mlx5e_priv *priv = netdev_priv(psd->main_netdev);
+	struct mlx5e_nisp_stats nstats;
+
+	mlx5e_accel_nisp_fs_get_stats_fill(priv, &nstats);
+	stats->rx_packets = nstats.psp_rx_pkts;
+	stats->rx_bytes = nstats.psp_rx_bytes;
+	stats->rx_auth_fail = nstats.psp_rx_pkts_auth_fail;
+	stats->rx_error = nstats.psp_rx_pkts_frame_err;
+	stats->rx_bad = nstats.psp_rx_pkts_drop;
+	stats->tx_packets = nstats.psp_tx_pkts;
+	stats->tx_bytes = nstats.psp_tx_bytes;
+	stats->tx_error = 0; // TODO implement
+}
+
 static struct psp_dev_ops mlx5_psp_ops = {
 	.set_config   = mlx5e_psp_set_config,
 	.rx_spi_alloc = mlx5e_psp_rx_spi_alloc,
 	.tx_key_add   = mlx5e_psp_assoc_add,
 	.tx_key_del   = mlx5e_psp_assoc_del,
+	.get_stats    = mlx5e_psp_get_stats,
 };
 
 static struct psp_dev_caps mlx5_psp_caps = {
@@ -120,6 +137,16 @@ static struct psp_dev_caps mlx5_psp_caps = {
 		    1 << PSP_VERSION_HDR0_AES_GCM_256,
 	.assoc_drv_spc = sizeof(u32),
 };
+
+void mlx5e_accel_nisp_get_stats_fill(struct mlx5e_priv *priv, void *nisp_stats)
+{
+	mlx5e_accel_nisp_fs_get_stats_fill(priv, nisp_stats);
+}
+
+struct mlx5e_nisp_stats *mlx5e_accel_nisp_get_stats(struct mlx5e_priv *priv)
+{
+	return &priv->nisp->stats;
+}
 
 void mlx5e_nisp_unregister(struct mlx5e_priv *priv)
 {

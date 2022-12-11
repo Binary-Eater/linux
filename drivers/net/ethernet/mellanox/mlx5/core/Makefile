@@ -110,7 +110,7 @@ mlx5_core-$(CONFIG_MLX5_EN_TLS) += en_accel/ktls_stats.o \
 				   en_accel/ktls_tx.o en_accel/ktls_rx.o
 
 mlx5_core-$(CONFIG_MLX5_EN_PSP) += en_accel/nisp.o en_accel/nisp_offload.o en_accel/nisp_fs.o \
-				   en_accel/nisp_rxtx.o
+				   en_accel/nisp_rxtx.o en_accel/nisp_stats.o
 
 mlx5_core-$(CONFIG_MLX5_SW_STEERING) += steering/dr_domain.o steering/dr_table.o \
 					steering/dr_matcher.o steering/dr_rule.o \

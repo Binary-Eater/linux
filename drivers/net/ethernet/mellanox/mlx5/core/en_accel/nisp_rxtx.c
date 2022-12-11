@@ -121,15 +121,6 @@ out:
 
 void mlx5e_nisp_csum_complete(struct net_device *netdev, struct sk_buff* skb)
 {
-	struct mlx5e_priv *priv = netdev_priv(netdev);
-	struct mlx5e_nisp *nisp = priv->nisp;
-	__wsum csumdiff;
-
-	goto trim_skb;
-	skb->csum = csum_block_sub(skb->csum, nisp->psphdrsum, PSP_ENCAP_HLEN);
-	csumdiff = csum_partial(skb->data + skb->len - PSP_ICV_LENGTH, PSP_ENCAP_HLEN, 0);
-	skb->csum = csum_block_sub(skb->csum, csumdiff, skb->len - PSP_ICV_LENGTH);
-trim_skb:
 	pskb_trim(skb, skb->len - PSP_ICV_LENGTH);
 }
 
@@ -156,7 +147,7 @@ static int psp_rcv(struct net_device *netdev, struct sk_buff *skb)
 	__vlan_get_protocol(skb, eth->h_proto, &depth);
 	ipv6h = (struct ipv6hdr *)(skb->data + depth);
 	depth += sizeof(*ipv6h);
-	buff = kzalloc(depth, GFP_KERNEL);
+	buff = kzalloc(depth, GFP_ATOMIC);
 	if(!buff)
 		return -ENOMEM;
 	nisp->psphdrsum = csum_partial(skb->data + depth, PSP_ENCAP_HLEN, 0);
@@ -201,11 +192,8 @@ void mlx5e_nisp_offload_handle_rx_skb(struct net_device *netdev, struct sk_buff 
 		psp_rcv(netdev, skb);
 		skb->decrypted = 1;
 		break;
-	case MLX5E_NISP_OFFLOAD_RX_SYNDROME_AUTH_FAILED:
-		break;
-	case MLX5E_NISP_OFFLOAD_RX_SYNDROME_BAD_TRAILER:
-		break;
 	default:
+		WARN_ON_ONCE(true);
 		break;
 	}
 }

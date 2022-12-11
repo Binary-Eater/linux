@@ -14,6 +14,7 @@ int mlx5_accel_nisp_fs_init_tx_tables(struct mlx5e_priv *priv);
 void mlx5_accel_nisp_fs_cleanup_tx_tables(struct mlx5e_priv *priv);
 int mlx5_accel_nisp_fs_init_rx_tables(struct mlx5e_priv *priv);
 void mlx5_accel_nisp_fs_cleanup_rx_tables(struct mlx5e_priv *priv);
+void mlx5e_accel_nisp_fs_get_stats_fill(struct mlx5e_priv *priv, void *nisp_stats);
 #else
 static inline int mlx5_accel_nisp_fs_init_tx_tables(struct mlx5e_priv *priv)
 {
