@@ -124,12 +124,35 @@ static void mlx5e_psp_get_stats(struct psp_dev *psd, struct psp_dev_stats *stats
 	stats->tx_error = 0; // TODO implement
 }
 
+static int mlx5e_psp_key_rotate(struct psp_dev *psd, struct netlink_ext_ack *exack)
+{
+	struct mlx5e_priv *priv = netdev_priv(psd->main_netdev);
+	int err = mlx5e_nisp_rotate_key(priv->mdev);
+	struct mlx5_nisp *mnisp = priv->mdev->nisp;
+
+	if (err)
+		return err;
+
+	/* TODO FW needs a way to query the master key index without generating an SPI */
+	if (!mnisp->key_index_inited) {
+		NL_SET_ERR_MSG(
+			exack,
+			"mlx5_core PSP device cannot rotate key without an initial SPI");
+		return -EINVAL;
+	}
+
+	mnisp->key_index++;
+	mnisp->key_gen_arr[mnisp->key_index % MLX5_NISP_MASTER_KEY_NUM] = psd->generation;
+	return 0;
+}
+
 static struct psp_dev_ops mlx5_psp_ops = {
 	.set_config   = mlx5e_psp_set_config,
 	.rx_spi_alloc = mlx5e_psp_rx_spi_alloc,
 	.tx_key_add   = mlx5e_psp_assoc_add,
 	.tx_key_del   = mlx5e_psp_assoc_del,
 	.get_stats    = mlx5e_psp_get_stats,
+	.key_rotate   = mlx5e_psp_key_rotate,
 };
 
 static struct psp_dev_caps mlx5_psp_caps = {
