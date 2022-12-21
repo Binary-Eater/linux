@@ -101,7 +101,10 @@ tcp_timewait_state_process(struct inet_timewait_sock *tw, struct sk_buff *skb,
 {
 	struct tcp_options_received tmp_opt;
 	struct tcp_timewait_sock *tcptw = tcp_twsk((struct sock *)tw);
+	enum skb_drop_reason psp_drop;
 	bool paws_reject = false;
+
+	psp_drop = psp_twsk_rx_policy_check(tcptw, skb);
 
 	tmp_opt.saw_tstamp = 0;
 	if (th->doff > (sizeof(*th) >> 2) && tcptw->tw_ts_recent_stamp) {
@@ -118,6 +121,9 @@ tcp_timewait_state_process(struct inet_timewait_sock *tw, struct sk_buff *skb,
 
 	if (tw->tw_substate == TCP_FIN_WAIT2) {
 		/* Just repeat all the checks of tcp_rcv_state_process() */
+
+		if (psp_drop)
+			goto out_put;
 
 		/* Out of window, send ACK */
 		if (paws_reject ||
@@ -183,6 +189,9 @@ tcp_timewait_state_process(struct inet_timewait_sock *tw, struct sk_buff *skb,
 	     (TCP_SKB_CB(skb)->seq == TCP_SKB_CB(skb)->end_seq || th->rst))) {
 		/* In window segment, it may be only reset or bare ack. */
 
+		if (psp_drop)
+			goto out_put;
+
 		if (th->rst) {
 			/* This is TIME_WAIT assassination, in two flavors.
 			 * Oh well... nobody has a sufficient solution to this
@@ -234,6 +243,9 @@ kill:
 		return TCP_TW_SYN;
 	}
 
+	if (psp_drop)
+		goto out_put;
+
 	if (paws_reject)
 		__NET_INC_STATS(twsk_net(tw), LINUX_MIB_PAWSESTABREJECTED);
 
@@ -250,6 +262,8 @@ kill:
 		return tcp_timewait_check_oow_rate_limit(
 			tw, skb, LINUX_MIB_TCPACKSKIPPEDTIMEWAIT);
 	}
+
+out_put:
 	inet_twsk_put(tw);
 	return TCP_TW_SUCCESS;
 }
@@ -332,6 +346,7 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
 
 		tcp_time_wait_init(sk, tcptw);
 		tcp_ao_time_wait(tcptw, tp);
+		psp_twsk_init(tcptw, sk);
 
 		/* Get the TIME_WAIT timeout firing. */
 		if (timeo < rto)
