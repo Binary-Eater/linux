@@ -65,6 +65,7 @@ struct macsec_ops;
 struct netdev_name_node;
 struct sd_flow_limit;
 struct sfp_bus;
+struct psp_dev;
 /* 802.11 specific */
 struct wireless_dev;
 /* 802.15.4 specific */
@@ -1874,6 +1875,7 @@ enum netdev_reg_state {
  *			 device struct
  *	@mpls_ptr:	mpls_dev struct pointer
  *	@mctp_ptr:	MCTP specific data
+ *	@psp_dev:	PSP crypto device registered for this netdev
  *
  *	@dev_addr:	Hw address (before bcast,
  *			because most packets are unicast)
@@ -2249,6 +2251,9 @@ struct net_device {
 #endif
 #if IS_ENABLED(CONFIG_MCTP)
 	struct mctp_dev __rcu	*mctp_ptr;
+#endif
+#if IS_ENABLED(CONFIG_INET_PSP)
+	struct psp_dev __rcu	*psp_dev;
 #endif
 
 /*
