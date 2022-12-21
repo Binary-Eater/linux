@@ -22,6 +22,7 @@
 #include <net/mptcp.h>
 #include <net/xfrm.h>
 #include <asm/ioctls.h>
+#include <net/psp.h>
 #include "protocol.h"
 #include "mib.h"
 
@@ -3009,6 +3010,7 @@ static void __mptcp_destroy_sock(struct sock *sk)
 	WARN_ON_ONCE(msk->rmem_released);
 	sk_stream_kill_queues(sk);
 	xfrm_sk_free_policy(sk);
+	psp_sk_assoc_free(sk);
 
 	sock_put(sk);
 }
