@@ -32,6 +32,9 @@ struct psp_dev_config {
  * @prev_assocs:	associations which use old (but still usable) main key
  * @stale_assocs:	associations which use a rotated out key
  *
+ * @stats.rotations:	See stats attr key-rotations
+ * @stats.stales:	See stats attr stale-events
+ *
  * @rcu:	RCU head for freeing the structure
  */
 struct psp_dev {
@@ -53,6 +56,11 @@ struct psp_dev {
 	struct list_head active_assocs;
 	struct list_head prev_assocs;
 	struct list_head stale_assocs;
+
+	struct {
+		unsigned long rotations;
+		unsigned long stales;
+	} stats;
 
 	struct rcu_head rcu;
 };
