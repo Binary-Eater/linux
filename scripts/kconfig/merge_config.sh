@@ -30,6 +30,7 @@ usage() {
 	echo "  -O    dir to put generated output files.  Consider setting \$KCONFIG_CONFIG instead."
 	echo "  -s    strict mode. Fail if the fragment redefines any value."
 	echo "  -Q    disable warning messages for overridden options."
+	echo "  -N    not set entries in fragments will not override options."
 	echo
 	echo "Used prefix: '$CONFIG_PREFIX'. You can redefine it with \$CONFIG_ environment variable."
 }
@@ -42,6 +43,7 @@ OUTPUT=.
 STRICT=false
 CONFIG_PREFIX=${CONFIG_-CONFIG_}
 WARNOVERRIDE=echo
+OVERRIDENOTSET=true
 
 while true; do
 	case $1 in
@@ -86,6 +88,11 @@ while true; do
 		;;
 	"-Q")
 		WARNOVERRIDE=true
+		shift
+		continue
+		;;
+	"-N")
+		OVERRIDENOTSET=false
 		shift
 		continue
 		;;
@@ -143,13 +150,20 @@ for ORIG_MERGE_FILE in $MERGE_LIST ; do
 		grep -q -w $CFG $TMP_FILE || continue
 		PREV_VAL=$(grep -w $CFG $TMP_FILE)
 		NEW_VAL=$(grep -w $CFG $MERGE_FILE)
-		BUILTIN_FLAG=false
-		if [ "$BUILTIN" = "true" ] && [ "${NEW_VAL#CONFIG_*=}" = "m" ] && [ "${PREV_VAL#CONFIG_*=}" = "y" ]; then
+		NO_OVERRIDE_FLAG=false
+		if [ "$OVERRIDENOTSET" = "false" ] && [ "${NEW_VAL#\# CONFIG_* }" = "is not set" ] &&
+			   [ "$PREV_VAL" != "" ] && [ "${PREV_VAL#\# CONFIG_* }" != "is not set" ]; then
+			${WARNOVERRIDE} Previous  value: $PREV_VAL
+			${WARNOVERRIDE} New value:       $NEW_VAL
+			${WARNOVERRIDE} -N passed, will not unset option
+			${WARNOVERRIDE}
+			NO_OVERRIDE_FLAG=true
+		elif [ "$BUILTIN" = "true" ] && [ "${NEW_VAL#CONFIG_*=}" = "m" ] && [ "${PREV_VAL#CONFIG_*=}" = "y" ]; then
 			${WARNOVERRIDE} Previous  value: $PREV_VAL
 			${WARNOVERRIDE} New value:       $NEW_VAL
 			${WARNOVERRIDE} -y passed, will not demote y to m
 			${WARNOVERRIDE}
-			BUILTIN_FLAG=true
+			NO_OVERRIDE_FLAG=true
 		elif [ "x$PREV_VAL" != "x$NEW_VAL" ] ; then
 			${WARNOVERRIDE} Value of $CFG is redefined by fragment $ORIG_MERGE_FILE:
 			${WARNOVERRIDE} Previous  value: $PREV_VAL
@@ -161,7 +175,7 @@ for ORIG_MERGE_FILE in $MERGE_LIST ; do
 		elif [ "$WARNREDUN" = "true" ]; then
 			${WARNOVERRIDE} Value of $CFG is redundant by fragment $ORIG_MERGE_FILE:
 		fi
-		if [ "$BUILTIN_FLAG" = "false" ]; then
+		if [ "$NO_OVERRIDE_FLAG" = "false" ]; then
 			sed -i "/$CFG[ =]/d" $TMP_FILE
 		else
 			sed -i "/$CFG[ =]/d" $MERGE_FILE
