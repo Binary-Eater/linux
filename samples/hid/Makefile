@@ -8,6 +8,7 @@ pound := \#
 # List of programs to build
 tprogs-y += hid_mouse
 tprogs-y += hid_surface_dial
+tprogs-y += hid_keyboard
 
 # Libbpf dependencies
 LIBBPF_SRC = $(TOOLS_PATH)/lib/bpf
@@ -21,6 +22,7 @@ EXTRA_BPF_HEADERS := hid_bpf_helpers.h
 
 hid_mouse-objs := hid_mouse.o
 hid_surface_dial-objs := hid_surface_dial.o
+hid_keyboard-objs := hid_keyboard.o
 
 # Tell kbuild to always build the programs
 always-y := $(tprogs-y)
@@ -88,7 +90,7 @@ BTF_OBJCOPY_PROBE := $(shell $(LLVM_OBJCOPY) --help 2>&1 | grep -i 'usage.*llvm'
 BTF_LLVM_PROBE := $(shell echo "int main() { return 0; }" | \
 			  $(CLANG) --target=bpf -O2 -g -c -x c - -o ./llvm_btf_verify.o; \
 			  $(LLVM_READELF) -S ./llvm_btf_verify.o | grep BTF; \
-			  /bin/rm -f ./llvm_btf_verify.o)
+			  rm -f ./llvm_btf_verify.o)
 
 BPF_EXTRA_CFLAGS += -fno-stack-protector
 ifneq ($(BTF_LLVM_PROBE),)
@@ -159,6 +161,7 @@ libbpf_hdrs: $(LIBBPF)
 
 $(obj)/hid_mouse.o: $(obj)/hid_mouse.skel.h
 $(obj)/hid_surface_dial.o: $(obj)/hid_surface_dial.skel.h
+$(obj)/hid_keyboard.o: $(obj)/hid_keyboard.skel.h
 
 -include $(HID_SAMPLES_PATH)/Makefile.target
 
@@ -204,11 +207,12 @@ $(obj)/%.bpf.o: $(src)/%.bpf.c $(EXTRA_BPF_HEADERS_SRC) $(obj)/vmlinux.h
 		-I$(LIBBPF_INCLUDE) $(CLANG_SYS_INCLUDES) \
 		-c $(filter %.bpf.c,$^) -o $@
 
-LINKED_SKELS := hid_mouse.skel.h hid_surface_dial.skel.h
+LINKED_SKELS := hid_mouse.skel.h hid_surface_dial.skel.h hid_keyboard.skel.h
 clean-files += $(LINKED_SKELS)
 
 hid_mouse.skel.h-deps := hid_mouse.bpf.o hid_bpf_attach.bpf.o
 hid_surface_dial.skel.h-deps := hid_surface_dial.bpf.o hid_bpf_attach.bpf.o
+hid_keyboard.skel.h-deps := hid_keyboard.bpf.o hid_bpf_attach.bpf.o
 
 LINKED_BPF_SRCS := $(patsubst %.bpf.o,%.bpf.c,$(foreach skel,$(LINKED_SKELS),$($(skel)-deps)))
 
