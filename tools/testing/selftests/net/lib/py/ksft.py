@@ -103,7 +103,7 @@ def ktap_result(ok, cnt=1, case="", comment=""):
     print(res)
 
 
-def ksft_run(cases=None, globs=None, case_pfx=None, args=()):
+def ksft_run(cases=None, globs=None, case_pfx=None, args=(), skip_all=None):
     cases = cases or []
 
     if globs and case_pfx:
@@ -126,6 +126,8 @@ def ksft_run(cases=None, globs=None, case_pfx=None, args=()):
         KSFT_RESULT = True
         cnt += 1
         try:
+            if skip_all:
+                raise KsftSkipEx()
             case(*args)
         except KsftSkipEx as e:
             ktap_result(True, cnt, case, comment="SKIP " + str(e))

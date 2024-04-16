@@ -4,6 +4,7 @@ TEST_INCLUDES := $(wildcard lib/py/*.py)
 
 TEST_PROGS := \
 	ping.py \
+	psp.py \
 	stats.py \
 # end of TEST_PROGS
 
