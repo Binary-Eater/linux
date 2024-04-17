@@ -5,6 +5,7 @@ from pathlib import Path
 from lib.py import KsftSkipEx, KsftXfailEx
 from lib.py import cmd, ip
 from lib.py import NetNS, NetdevSimDev
+from lib.py import KsftXfailEx
 from .remote import Remote
 
 
@@ -217,6 +218,10 @@ class NetDrvEpEnv:
     def require_v6(self):
         if not self.v6 or not self.remote_v6:
             raise KsftSkipEx("Test requires IPv6 connectivity")
+
+    def require_nsim(self):
+        if self._ns is None:
+            raise KsftXfailEx("Test only works on netdevsim")
 
     def _require_cmd(self, comm, key, host=None):
         cached = self._required_cmd.get(comm, {})
