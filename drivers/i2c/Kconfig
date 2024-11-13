@@ -168,6 +168,15 @@ config I2C_DEBUG_BUS
 	  a problem with I2C support and want to see more of what is going
 	  on.
 
+config RUST_I2C_ABSTRACTIONS
+        bool "Rust I2C abstractions support"
+        depends on RUST
+        depends on I2C=y
+        help
+          Adds support needed for I2C drivers written in Rust. It provides
+          a wrapper around the C I2C core.
+
+
 endif # I2C
 
 endmenu

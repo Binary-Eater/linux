@@ -34,6 +34,8 @@ pub mod device;
 pub mod error;
 #[cfg(CONFIG_RUST_FW_LOADER_ABSTRACTIONS)]
 pub mod firmware;
+#[cfg(CONFIG_RUST_I2C_ABSTRACTIONS)]
+pub mod i2c;
 pub mod init;
 pub mod ioctl;
 #[cfg(CONFIG_KUNIT)]

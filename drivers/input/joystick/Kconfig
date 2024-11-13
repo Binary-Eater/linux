@@ -291,6 +291,15 @@ config JOYSTICK_JOYDUMP
 	  To compile this driver as a module, choose M here: the
 	  module will be called joydump.
 
+config JOYSTICK_JOY_BONNET
+	tristate "Adafruit Joy Bonnet for Rapberry Pi driver"
+	depends on RUST_I2C_ABSTRACTIONS
+	help
+	  Say Y here if you have an Adafruit Joy Bonnet hat.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called joy_bonnet_i2c.
+
 config JOYSTICK_XPAD
 	tristate "Xbox gamepad support"
 	depends on USB_ARCH_HAS_HCD
