@@ -4,6 +4,7 @@
  *
  * TODO details
  */
+// CANNOT HAVE HYPHENS IN CRATE NAME SO adafruit-joy-bonnet DEFAULT DOES NOT WORK...
 
 /*
 struct JoyBonnet;
