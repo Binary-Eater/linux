@@ -17,21 +17,16 @@ impl Driver for HidMonitorControl {
         /* TODO implement */
         Ok(())
     }
-
-    /*
-     * TODO figure out type. If type is too flexible, might make sense to make
-     * the id table a part of the driver macro
-     */
-    const IdTable: &'static Vec<hid::DeviceId> = vec![
-        hid::usb_device! {
-            vendor_id: /* TODO fill in */,
-            device_id: /* TODO fill in */,
-        },
-    ];
 }
 
 kernel::module_hid_driver! {
     driver: HidMonitorControl,
+    id_table: [
+        hid::usb_device! {
+            vendor: /* TODO fill in */,
+            product: /* TODO fill in */,
+        },
+    ],
     name: "monitor-control",
     author: "Rahul Rameshbabu <sergeantsagara@protonmail.com>",
     description: "Driver for the USB Monitor Control Class",

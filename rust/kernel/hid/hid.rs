@@ -33,6 +33,11 @@ impl DeviceId {
         unsafe { &mut *ptr };
     }
 
+    #[inline]
+    fn as_ptr(&mut self) -> *mut bindings::hid_device_id {
+        self.0.as_ptr()
+    }
+
     pub fn vendor(&self) -> u32 {
         let hdev_id = self.0.get();
 
@@ -66,8 +71,6 @@ pub trait Driver {
     fn remove(_dev: &mut Device) -> Result {
         Ok(0)
     }
-
-    const IdTable: &'static Vec<DeviceId>;
 }
 
 struct Adapter<T: Driver> {
@@ -152,8 +155,38 @@ impl Drop for Registration {
 }
 
 #[macro_export]
+macro_rules! usb_device {
+    (vendor: $($vendor:expr), product: $($product:expr)) => {
+        DeviceId(Opaque::new(bindings::hid_device_id {
+            bus: 0x3, /* BUS_USB */
+            vendor: $($vendor),
+            product: $($product),
+            // SAFETY: The rest is zeroed out to initialize `struct hid_device_id`,
+            // sets `Option<&F>` to be `None`.
+            ..unsafe { core::mem::MaybeUninit::<bindings::hid_device_id>::zeroed().assume_init() }
+        }))
+    }
+}
+
+macro_rules! term {
+    () => {
+        DeviceId(Opaque::new(bindings::hid_device_id {
+            // SAFETY: The rest is zeroed out to initialize `struct hid_device_id`,
+            // sets `Option<&F>` to be `None`.
+            ..unsafe { core::mem::MaybeUninit::<bindings::hid_device_id>::zeroed().assume_init() }
+        }))
+    }
+}
+
+#[macro_export]
 macro_rules! module_hid_driver {
-    (driver: $($driver:ident), name: $($name:expr), $(f:tt)*) => {
+    (@replace_expr $_t:tt $sub:expr) => {$sub};
+
+    (@count_devices $($x:expr),*) => {
+        0usize $(+ $crate::module_hid_driver!(@replace_expr $x 1usize))*
+    };
+
+    (driver: $($driver:ident), id_table: [$($dev_id:expr),+ $(,)?], name: $($name:expr), $(f:tt)*) => {
         struct Module {
             _reg: $crate::hid::Registration,
         }
@@ -165,6 +198,18 @@ macro_rules! module_hid_driver {
         }
 
         const _: () = {
+            const NAME: &'static Cstr = $crate::c_str!($($name));
+
+            static ID_TABLE: [$crate::bindings::hid_device_id;
+                $crate::module_hid_driver!(@count_devices $($dev_id),+) + 1] = [
+                $($dev_id.as_ptr()),+,
+                $crate::bindings::hid_device_id {
+                    // SAFETY: All is zeroed out to initialize `struct hid_device_id`,
+                    // sets `Option<&F>` to be `None`.
+                    ..unsafe { $crate::core::mem::MaybeUninit::<$crate::bindings::hid_device_id>::zeroed().assume_init() }
+                },
+            ];
+
             static mut DRIVER: $crate::hid::DriverVTable = $($crate::hid::create_hid_driver::<$driver>(NAME, /* TODO pass ID_TABLE */));
         };
     }
