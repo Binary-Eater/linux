@@ -33,11 +33,6 @@ impl DeviceId {
         unsafe { &mut *ptr }
     }
 
-    #[inline]
-    fn as_ptr(&mut self) -> *mut bindings::hid_device_id {
-        self.0.as_ptr()
-    }
-
     pub fn vendor(&self) -> u32 {
         let hdev_id = self.0.get();
 
