@@ -199,7 +199,7 @@ macro_rules! module_hid_driver {
             ];
 
             static mut DRIVER: $crate::hid::DriverVTable =
-                $($crate::hid::create_hid_driver::<$driver>(NAME, ::core::pin::Pin::static(ID_TABLE)));
+                $($crate::hid::create_hid_driver::<$driver>(NAME, ::core::pin::Pin::static_ref(unsafe { &ID_TABLE })));
 
             impl $crate::Module for Module {
                 fn init(module: &'static $crate::ThisModule) -> Result<Self> {
