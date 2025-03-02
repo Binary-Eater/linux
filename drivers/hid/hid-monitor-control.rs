@@ -4,6 +4,9 @@ use kernel::hid::{
     Driver,
 };
 
+const USB_VENDOR_ID_NVIDIA: u32 = 0x0955;
+const USB_DEVICE_ID_NVIDIA_THUNDERSTRIKE_CONTROLLER: u32 = 0x7214;
+
 struct HidMonitorControl;
 
 #[vtable]
@@ -23,8 +26,8 @@ kernel::module_hid_driver! {
     driver: HidMonitorControl,
     id_table: [
         hid::usb_device! {
-            vendor: /* TODO fill in */,
-            product: /* TODO fill in */,
+            vendor: USB_VENDOR_ID_NVIDIA,
+            product: USB_DEVICE_ID_NVIDIA_THUNDERSTRIKE_CONTROLLER,
         },
     ],
     name: "monitor-control",
