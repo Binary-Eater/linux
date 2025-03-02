@@ -7,7 +7,7 @@ impl Device {
     unsafe fn from_ptr<'a>(ptr: *mut bindings::hid_device) -> &'a mut Self {
         let ptr = ptr.cast::<Self>();
 
-        unsafe { &mut *ptr };
+        unsafe { &mut *ptr }
     }
 
     pub fn vendor(&self) -> u32 {
@@ -30,7 +30,7 @@ impl DeviceId {
     unsafe fn from_ptr<'a>(ptr: *mut bindings::hid_device_id) -> &'a mut Self {
         let ptr = ptr.cast::<Self>();
 
-        unsafe { &mut *ptr };
+        unsafe { &mut *ptr }
     }
 
     #[inline]
