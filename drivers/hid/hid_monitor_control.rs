@@ -24,12 +24,12 @@ impl Driver for HidMonitorControl {
 kernel::module_hid_driver! {
     driver: HidMonitorControl,
     id_table: [
-        hid::usb_device! {
+        kernel::usb_device! {
             vendor: USB_VENDOR_ID_NVIDIA,
             product: USB_DEVICE_ID_NVIDIA_THUNDERSTRIKE_CONTROLLER,
         },
     ],
-    name: "monitor-control",
+    name: "monitor_control",
     author: "Rahul Rameshbabu <sergeantsagara@protonmail.com>",
     description: "Driver for the USB Monitor Control Class",
     license: "GPL",
