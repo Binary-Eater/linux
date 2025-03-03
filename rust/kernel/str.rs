@@ -253,6 +253,12 @@ impl CStr {
         self.0.as_ptr()
     }
 
+    /// Returns a C pointer to the string.
+    #[inline]
+    pub unsafe fn as_mut_char_ptr(&mut self) -> *mut crate::ffi::c_char {
+        self.0.as_mut_ptr()
+    }
+
     /// Convert the string to a byte slice without the trailing `NUL` byte.
     #[inline]
     pub fn as_bytes(&self) -> &[u8] {

@@ -16,9 +16,8 @@ impl Driver for HidMonitorControl {
         Ok(())
     }
 
-    fn remove(dev: &mut hid::Device) -> Result<()> {
+    fn remove(dev: &mut hid::Device) {
         /* TODO implement */
-        Ok(())
     }
 }
 

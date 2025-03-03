@@ -1,4 +1,6 @@
 /* TODO use bindings interface for defining Device and DeviceId from C HID core */
+use crate::{error::*, prelude::*, types::Opaque};
+use core::marker::PhantomData;
 
 #[repr(transparent)]
 pub struct Device(Opaque<bindings::hid_device>);
@@ -33,6 +35,12 @@ impl DeviceId {
         unsafe { &mut *ptr }
     }
 
+    unsafe fn from_const_ptr<'a>(ptr: *const bindings::hid_device_id) -> &'a Self {
+        let ptr = ptr.cast::<Self>();
+
+        unsafe { &(*ptr) }
+    }
+
     pub fn vendor(&self) -> u32 {
         let hdev_id = self.0.get();
 
@@ -64,7 +72,7 @@ pub trait Driver {
     }
 
     fn remove(_dev: &mut Device) -> Result {
-        Ok(0)
+        Ok(())
     }
 }
 
@@ -75,22 +83,19 @@ struct Adapter<T: Driver> {
 impl<T: Driver> Adapter<T> {
     unsafe extern "C" fn probe_callback(
         hdev: *mut bindings::hid_device,
-        hdev_id: *mut bindings::hid_device_id,
+        hdev_id: *const bindings::hid_device_id,
     ) -> crate::ffi::c_int {
         from_result(|| {
             let dev = unsafe { Device::from_ptr(hdev) };
-            let dev_id = unsafe { DeviceId::from_ptr(hdev_id) };
+            let dev_id = unsafe { DeviceId::from_const_ptr(hdev_id) };
             T::probe(dev, dev_id)?;
             Ok(0)
         })
     }
 
-    unsafe extern "C" fn remove_callback(hdev: *mut bindings::hid_device,) -> crate::ffi::c_int {
-        from_result(|| {
-            let dev = unsafe { Device::from_ptr(hdev) };
-            T::remove(dev)?;
-            Ok(0)
-        })
+    unsafe extern "C" fn remove_callback(hdev: *mut bindings::hid_device) {
+        let dev = unsafe { Device::from_ptr(hdev) };
+        T::remove(dev);
     }
 }
 
@@ -101,12 +106,12 @@ pub struct DriverVTable(Opaque<bindings::hid_driver>);
 // share `&DriverVTable` across execution context boundaries.
 unsafe impl Sync for DriverVTable {}
 
-pub const fn create_hid_driver<T: Driver>(
-    name: &'static CStr,
+pub fn create_hid_driver<T: Driver>(
+    name: &'static mut CStr,
     id_table: Pin<&'static [DeviceId]>,
 ) -> DriverVTable {
     DriverVTable(Opaque::new(bindings::hid_driver {
-        name: name.as_char_ptr(),
+        name: unsafe { name.as_mut_char_ptr() },
         id_table: id_table[0].0.get(),
         probe: if T::HAS_PROBE {
             Some(Adapter::<T>::probe_callback)
@@ -154,11 +159,11 @@ impl Drop for Registration {
 
 #[macro_export]
 macro_rules! usb_device {
-    (vendor: $($vendor:expr), product: $($product:expr)) => {
+    (vendor: $vendor:expr, product: $product:expr) => {
         DeviceId(Opaque::new(bindings::hid_device_id {
             bus: 0x3, /* BUS_USB */
-            vendor: $($vendor),
-            product: $($product),
+            vendor: $vendor,
+            product: $product,
             // SAFETY: The rest is zeroed out to initialize `struct hid_device_id`,
             // sets `Option<&F>` to be `None`.
             ..unsafe { $crate::core::mem::MaybeUninit::<bindings::hid_device_id>::zeroed().assume_init() }
@@ -174,19 +179,19 @@ macro_rules! module_hid_driver {
         0usize $(+ $crate::module_hid_driver!(@replace_expr $x 1usize))*
     };
 
-    (driver: $($driver:ident), id_table: [$($dev_id:expr),+ $(,)?], name: $($name:expr), $(f:tt)*) => {
+    (driver: $driver:ident, id_table: [$($dev_id:expr),+ $(,)?], name: $name:expr, $(f:tt)*) => {
         struct Module {
             _reg: $crate::hid::Registration,
         }
 
         $crate::prelude::module! {
             type: Module,
-            name: $($name),
+            name: $name,
             $($f)*
         }
 
         const _: () = {
-            const NAME: &'static Cstr = $crate::c_str!($($name));
+            NAME: &'static mut Cstr = $crate::c_str!($name);
 
             static ID_TABLE: [$crate::hid::DeviceId;
                 $crate::module_hid_driver!(@count_devices $($dev_id),+) + 1] = [
@@ -199,7 +204,7 @@ macro_rules! module_hid_driver {
             ];
 
             static mut DRIVER: $crate::hid::DriverVTable =
-                $($crate::hid::create_hid_driver::<$driver>(NAME, ::core::pin::Pin::static_ref(unsafe { &ID_TABLE })));
+                $crate::hid::create_hid_driver::<$driver>(NAME, ::core::pin::Pin::static_ref(unsafe { &ID_TABLE }));
 
             impl $crate::Module for Module {
                 fn init(module: &'static $crate::ThisModule) -> Result<Self> {
