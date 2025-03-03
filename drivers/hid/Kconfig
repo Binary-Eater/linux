@@ -722,6 +722,14 @@ config RUST_HID_ABSTRACTIONS
 	 Adds support needed for HID drivers written in Rust. It provides a
 	 wrapper around the C hid core.
 
+config HID_MONITOR_CONTROL
+       tristate "USB Monitor Control Class support"
+       depends on USB_HID
+       depends on RUST_HID_ABSTRACTIONS
+       help
+       Say Y here if you want to enable control over a monitor that uses USB
+       Monitor Control Class.
+
 config HID_REDRAGON
 	tristate "Redragon keyboards"
 	default !EXPERT
