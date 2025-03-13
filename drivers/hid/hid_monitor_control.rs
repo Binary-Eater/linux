@@ -13,11 +13,13 @@ struct HidMonitorControl;
 impl Driver for HidMonitorControl {
     fn probe(dev: &mut hid::Device, id: &hid::DeviceId) -> Result<()> {
         /* TODO implement */
+        pr_info!("Probing HID device vendor: {} product: {} using Rust!\n", id.vendor(), id.product());
         Ok(())
     }
 
     fn remove(dev: &mut hid::Device) {
         /* TODO implement */
+        pr_info!("Removing HID device vendor: {} product: {} using Rust!\n", dev.vendor(), dev.product());
     }
 }
 
