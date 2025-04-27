@@ -28,42 +28,22 @@ impl Device {
     }
 }
 
+/// Abstraction for bindings::hid_device_id.
 #[repr(transparent)]
-pub struct DeviceIdShallow(Opaque<bindings::hid_device_id>);
-
-// SAFETY: `DeviceIdShallow` doesn't expose any &self method to access internal data, so it's safe to
-// share `&DriverVTable` across execution context boundaries.
-unsafe impl Sync for DeviceIdShallow {}
-
-impl DeviceIdShallow {
-    pub const fn new() -> Self {
-        DeviceIdShallow(Opaque::new(bindings::hid_device_id {
-            // SAFETY: The rest is zeroed out to initialize `struct hid_device_id`,
-            // sets `Option<&F>` to be `None`.
-            ..unsafe { ::core::mem::MaybeUninit::<bindings::hid_device_id>::zeroed().assume_init() }
-        }))
-    }
-
-    pub const fn new_usb(vendor: u32, product: u32) -> Self {
-        DeviceIdShallow(Opaque::new(bindings::hid_device_id {
-            bus: 0x3, /* BUS_USB */
-            vendor: vendor,
-            product: product,
-            // SAFETY: The rest is zeroed out to initialize `struct hid_device_id`,
-            // sets `Option<&F>` to be `None`.
-            ..unsafe { ::core::mem::MaybeUninit::<bindings::hid_device_id>::zeroed().assume_init() }
-        }))
-    }
-
-    const unsafe fn as_ptr(&self) -> *const bindings::hid_device_id {
-        self.0.get()
-    }
-}
-
-#[repr(transparent)]
-pub struct DeviceId(Opaque<bindings::hid_device_id>);
+#[derive(Clone, Copy)]
+pub struct DeviceId(bindings::hid_device_id);
 
 impl DeviceId {
+    pub const fn new_usb(vendor: u32, product: u32) -> Self {
+        Self(bindings::hid_device_id {
+            bus: 0x3, /* BUS_USB */
+            group: HID_GROUP_ANY, /* TODO fix/use */
+            vendor: vendor,
+            product: product,
+            driver_data: 0, /* TODO fix/use */
+        })
+    }
+
     unsafe fn from_ptr<'a>(ptr: *mut bindings::hid_device_id) -> &'a mut Self {
         let ptr = ptr.cast::<Self>();
 
@@ -76,17 +56,53 @@ impl DeviceId {
         unsafe { &(*ptr) }
     }
 
+    /* TODO simplify with a non-exported macro rule? */
+    pub fn bus(&self) -> u16 {
+        let hdev_id = self.0;
+
+        unsafe { (*hdev_id).bus }
+    }
+
+    pub fn group(&self) -> u16 {
+        let hdev_id = self.0;
+
+        unsafe { (*hdev_id).group }
+    }
+
     pub fn vendor(&self) -> u32 {
-        let hdev_id = self.0.get();
+        let hdev_id = self.0;
 
         unsafe { (*hdev_id).vendor }
     }
 
     pub fn product(&self) -> u32 {
-        let hdev_id = self.0.get();
+        let hdev_id = self.0;
 
         unsafe { (*hdev_id).product }
     }
+}
+
+// SAFETY:
+// * `DeviceId` is a `#[repr(transparent)` wrapper of `hid_device_id` and does not add
+//   additional invariants, so it's safe to transmute to `RawType`.
+// * `DRIVER_DATA_OFFSET` is the offset to the `driver_data` field.
+unsafe impl RawDeviceId for DeviceId {
+    type RawType = bindings::hid_device_id;
+
+    const DRIVER_DATA_OFFSET: usize = core::mem::offset_of!(bindings::hid_device_id, driver_data);
+
+    fn index(&self) -> usize {
+        self.0.driver_data as _
+    }
+}
+
+/// IdTable type for HID
+pub type IdTable<T> = &'static dyn kernel::device_id::IdTable<DeviceId, T>;
+
+/// Create a HID `IdTable` with its alias for modpost.
+#[macro_export]
+macro_rules! hid_device_table {
+    // TODO fill in
 }
 
 /*
