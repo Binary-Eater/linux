@@ -6,7 +6,13 @@ use crate::{error::*, prelude::*, types::Opaque};
 use core::marker::PhantomData;
 
 #[repr(transparent)]
-pub struct Device(Opaque<bindings::hid_device>);
+pub struct Device<Ctx: DeviceContext = Normal>(Opaque<bindings::hid_device>, PhantomData<Ctx>);
+
+impl<Ctx: device::DeviceContext> Device<Ctx> {
+    fn as_raw(&self) -> *mut bindings::pci_dev {
+        self.0.get()
+    }
+}
 
 impl Device {
     unsafe fn from_ptr<'a>(ptr: *mut bindings::hid_device) -> &'a mut Self {
@@ -16,17 +22,19 @@ impl Device {
     }
 
     pub fn vendor(&self) -> u32 {
-        let hdev = self.0.get();
-
-        unsafe { (*hdev).vendor }
+        unsafe { (*self.as_raw()).vendor }
     }
 
     pub fn product(&self) -> u32 {
-        let hdev = self.0.get();
-
-        unsafe { (*hdev).product }
+        unsafe { (*self.as_raw()).product }
     }
 }
+
+// TODO see if this is needed
+// SAFETY: `Device` is a transparent wrapper of a type that doesn't depend on `Device`'s generic
+// argument.
+//kernel::impl_device_context_deref!(unsafe { Device });
+//kernel::impl_device_context_into_aref!(Device);
 
 /// Abstraction for bindings::hid_device_id.
 #[repr(transparent)]
@@ -103,6 +111,52 @@ pub type IdTable<T> = &'static dyn kernel::device_id::IdTable<DeviceId, T>;
 #[macro_export]
 macro_rules! hid_device_table {
     // TODO fill in
+    ($table_name:ident, $module_table_name:ident, $id_info_type: ty, $table_data: expr) => {
+        const $table_name: $crate::device_id::IdArray<
+            $crate::hid::DeviceId,
+            $id_info_type,
+            { $table_data.len() },
+        > = $crate::device_id::IdArray::new($table_data);
+
+        $crate::module_device_table!("hid", $module_table_name, $table_name);
+    };
+}
+
+/// An adapter for the registration of HID drivers.
+pub struct Adapter<T: Driver>(T);
+
+unsafe impl<T: Driver + 'static> driver::RegistrationOps for Adapter<T> {
+    type RegType = bindings::hid_driver;
+
+    unsafe fn register(
+        hdrv: &Opaque<Self::RegType>,
+        name: &'static CStr,
+        module: &'static ThisModule,
+    ) -> Result {
+        unsafe {
+            let raw_hdrv = *hdrv.get();
+
+            raw_hdrv.name = name.as_char_ptr();
+        }
+
+        to_result(unsafe {
+            bindings::__hid_register_driver(hdrv.get(), module.0, name.as_char_ptr())
+        })
+    }
+
+    unsafe fn unregister(hdrv: &Opaque<Self::RegType>) {
+        unsafe { bindings::hid_unregister_driver(hdrv.get()) }
+    }
+}
+
+impl<T: Driver + 'static> Adapter<T> {
+    extern "C" fn report_fixup_callback(
+        hdev: *mut bindings::hid_dev,
+        /* TODO __u8 *buf */,
+        /* TODO unsigned int *size */,
+    ) -> /* TODO const __u8 * */ {
+
+    }
 }
 
 /*
