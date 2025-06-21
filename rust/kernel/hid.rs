@@ -137,6 +137,12 @@ unsafe impl<T: Driver + 'static> driver::RegistrationOps for Adapter<T> {
             let raw_hdrv = *hdrv.get();
 
             raw_hdrv.name = name.as_char_ptr();
+            raw_hdrv.id_table = T::ID_TABLE::as_ptr();
+            raw_hdrv.report_fixup = if T::HAS_REPORT_FIXUP {
+                Some(Self::report_fixup_callback)
+            } else {
+                None
+            }
         }
 
         to_result(unsafe {
@@ -152,10 +158,24 @@ unsafe impl<T: Driver + 'static> driver::RegistrationOps for Adapter<T> {
 impl<T: Driver + 'static> Adapter<T> {
     extern "C" fn report_fixup_callback(
         hdev: *mut bindings::hid_dev,
-        /* TODO __u8 *buf */,
-        /* TODO unsigned int *size */,
-    ) -> /* TODO const __u8 * */ {
+        buf: *mut u8,
+        size: *mut kernel::ffi::c_uint,
+    ) -> *u8 {
+        let hdev = unsafe { &*hdev.cast::<Device> };
 
+        /* FIXME If KVec frees the underlying buffer, we get a double free in
+         * the hid-core stack... */
+        /* TODO build a vector from buf and size in Rust */
+        let mut report_desc_vec = unsafe { KVec::from_raw_parts(bug, *size, *size) };
+
+        /* TODO figure out typing */
+        T::report_fixup(hdev, &mut report_desc_vec);
+
+        /* FIXME This causes a memory leak since hid-core does not attempt to
+         * free the buffer in case its static read-only memory*/
+        let (ptr, len, capacity) = report_desc_vec.into_raw_parts();
+        *size = len;
+        ptr
     }
 }
 
@@ -171,13 +191,12 @@ pub struct Report(Opaque<bindings::hid_report>);
 */
 
 #[vtable]
-pub trait Driver {
-    fn probe(_dev: &mut Device, _id: &DeviceId) -> Result {
-        build_error!(VTABLE_DEFAULT_ERROR)
-    }
+pub trait Driver: Send {
+    type IdInfo: 'static;
 
-    fn remove(_dev: &mut Device) {
-    }
+    const ID_TABLE: IdTable<Self::IdInfo>;
+
+    fn report_fixup(hdev: &Device, );
 }
 
 struct Adapter<T: Driver> {
