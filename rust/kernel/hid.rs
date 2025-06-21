@@ -163,19 +163,13 @@ impl<T: Driver + 'static> Adapter<T> {
     ) -> *u8 {
         let hdev = unsafe { &*hdev.cast::<Device> };
 
-        /* FIXME If KVec frees the underlying buffer, we get a double free in
-         * the hid-core stack... */
-        /* TODO build a vector from buf and size in Rust */
-        let mut report_desc_vec = unsafe { KVec::from_raw_parts(bug, *size, *size) };
+        /* Build a mutable Rust slice from buf and size */
+        let mut rdesc_slice = unsafe { core::slice::from_raw_parts_mut(buf, *size) };
+        let rdesc_slice = T::report_fixup(hdev, &mut rdesc_slice);
 
-        /* TODO figure out typing */
-        T::report_fixup(hdev, &mut report_desc_vec);
+        *size = rdesc_slice.len()
 
-        /* FIXME This causes a memory leak since hid-core does not attempt to
-         * free the buffer in case its static read-only memory*/
-        let (ptr, len, capacity) = report_desc_vec.into_raw_parts();
-        *size = len;
-        ptr
+        rdesc_slice.as_ptr()
     }
 }
 
@@ -196,7 +190,7 @@ pub trait Driver: Send {
 
     const ID_TABLE: IdTable<Self::IdInfo>;
 
-    fn report_fixup(hdev: &Device, );
+    fn report_fixup(hdev: &Device, rdesc: &mut [u8]) -> &[u8];
 }
 
 struct Adapter<T: Driver> {
