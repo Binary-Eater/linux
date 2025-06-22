@@ -2,39 +2,37 @@
 
 // Copyright (C) 2025 Rahul Rameshbabu <sergeantsagara@protonmail.com>
 
-use crate::{error::*, prelude::*, types::Opaque};
+use crate::{
+    device,
+    device_id::RawDeviceId,
+    driver,
+    error::*,
+    prelude::*,
+    types::Opaque,
+};
 use core::marker::PhantomData;
 
 #[repr(transparent)]
-pub struct Device<Ctx: DeviceContext = Normal>(Opaque<bindings::hid_device>, PhantomData<Ctx>);
+pub struct Device<Ctx: device::DeviceContext = device::Normal>(
+    Opaque<bindings::hid_device>,
+    PhantomData<Ctx>,
+);
 
 impl<Ctx: device::DeviceContext> Device<Ctx> {
-    fn as_raw(&self) -> *mut bindings::pci_dev {
+    fn as_raw(&self) -> *mut bindings::hid_device {
         self.0.get()
     }
 }
 
 impl Device {
-    unsafe fn from_ptr<'a>(ptr: *mut bindings::hid_device) -> &'a mut Self {
-        let ptr = ptr.cast::<Self>();
-
-        unsafe { &mut *ptr }
-    }
-
     pub fn vendor(&self) -> u32 {
-        unsafe { (*self.as_raw()).vendor }
+        unsafe { *self.as_raw() }.vendor
     }
 
     pub fn product(&self) -> u32 {
-        unsafe { (*self.as_raw()).product }
+        unsafe { *self.as_raw() }.product
     }
 }
-
-// TODO see if this is needed
-// SAFETY: `Device` is a transparent wrapper of a type that doesn't depend on `Device`'s generic
-// argument.
-//kernel::impl_device_context_deref!(unsafe { Device });
-//kernel::impl_device_context_into_aref!(Device);
 
 /// Abstraction for bindings::hid_device_id.
 #[repr(transparent)]
@@ -45,48 +43,28 @@ impl DeviceId {
     pub const fn new_usb(vendor: u32, product: u32) -> Self {
         Self(bindings::hid_device_id {
             bus: 0x3, /* BUS_USB */
-            group: HID_GROUP_ANY, /* TODO fix/use */
+            group: bindings::HID_GROUP_ANY as u16, /* TODO fix/use */
             vendor: vendor,
             product: product,
             driver_data: 0, /* TODO fix/use */
         })
     }
 
-    unsafe fn from_ptr<'a>(ptr: *mut bindings::hid_device_id) -> &'a mut Self {
-        let ptr = ptr.cast::<Self>();
-
-        unsafe { &mut *ptr }
-    }
-
-    unsafe fn from_const_ptr<'a>(ptr: *const bindings::hid_device_id) -> &'a Self {
-        let ptr = ptr.cast::<Self>();
-
-        unsafe { &(*ptr) }
-    }
-
     /* TODO simplify with a non-exported macro rule? */
     pub fn bus(&self) -> u16 {
-        let hdev_id = self.0;
-
-        unsafe { (*hdev_id).bus }
+        self.0.bus
     }
 
     pub fn group(&self) -> u16 {
-        let hdev_id = self.0;
-
-        unsafe { (*hdev_id).group }
+        self.0.group
     }
 
     pub fn vendor(&self) -> u32 {
-        let hdev_id = self.0;
-
-        unsafe { (*hdev_id).vendor }
+        self.0.vendor
     }
 
     pub fn product(&self) -> u32 {
-        let hdev_id = self.0;
-
-        unsafe { (*hdev_id).product }
+        self.0.product
     }
 }
 
@@ -128,7 +106,9 @@ pub trait Driver: Send {
 
     const ID_TABLE: IdTable<Self::IdInfo>;
 
-    fn report_fixup(hdev: &Device, rdesc: &mut [u8]) -> &[u8];
+    fn report_fixup<'a: 'b, 'b>(_hdev: &Device, _rdesc: &'b mut [u8]) -> &'a [u8] {
+        build_error!(VTABLE_DEFAULT_ERROR)
+    }
 }
 
 /// An adapter for the registration of HID drivers.
@@ -142,17 +122,15 @@ unsafe impl<T: Driver + 'static> driver::RegistrationOps for Adapter<T> {
         name: &'static CStr,
         module: &'static ThisModule,
     ) -> Result {
-        unsafe {
-            let raw_hdrv = *hdrv.get();
+        let hdrv_ref = &mut unsafe { *hdrv.get() };
 
-            raw_hdrv.name = name.as_char_ptr();
-            raw_hdrv.id_table = T::ID_TABLE::as_ptr();
-            raw_hdrv.report_fixup = if T::HAS_REPORT_FIXUP {
-                Some(Self::report_fixup_callback)
-            } else {
-                None
-            }
-        }
+        hdrv_ref.name = name.as_char_ptr();
+        hdrv_ref.id_table = T::ID_TABLE.as_ptr();
+        hdrv_ref.report_fixup = if T::HAS_REPORT_FIXUP {
+            Some(Self::report_fixup_callback)
+        } else {
+            None
+        };
 
         to_result(unsafe {
             bindings::__hid_register_driver(hdrv.get(), module.0, name.as_char_ptr())
@@ -166,17 +144,34 @@ unsafe impl<T: Driver + 'static> driver::RegistrationOps for Adapter<T> {
 
 impl<T: Driver + 'static> Adapter<T> {
     extern "C" fn report_fixup_callback(
-        hdev: *mut bindings::hid_dev,
+        hdev: *mut bindings::hid_device,
         buf: *mut u8,
         size: *mut kernel::ffi::c_uint,
-    ) -> *u8 {
-        let hdev = unsafe { &*hdev.cast::<Device> };
+    ) -> *const u8 {
+        let hdev = unsafe { &*hdev.cast::<Device>() };
+
+        let buf_len: usize = match unsafe { *size }.try_into() {
+            Ok(len) => len,
+            Err(e) => {
+                pr_err!("Cannot fix report description due to length conversion failure: {}!",
+                        e);
+
+                return buf;
+            },
+        };
 
         /* Build a mutable Rust slice from buf and size */
-        let mut rdesc_slice = unsafe { core::slice::from_raw_parts_mut(buf, *size) };
+        let mut rdesc_slice = unsafe { core::slice::from_raw_parts_mut(buf, buf_len) };
         let rdesc_slice = T::report_fixup(hdev, &mut rdesc_slice);
 
-        *size = rdesc_slice.len()
+        match rdesc_slice.len().try_into() {
+            Ok(len) => unsafe { *size = len },
+            Err(e) => {
+                pr_err!("Fixed report description will not be used due to {}!", e);
+
+                return buf;
+            },
+        }
 
         rdesc_slice.as_ptr()
     }
@@ -184,7 +179,7 @@ impl<T: Driver + 'static> Adapter<T> {
 
 #[macro_export]
 macro_rules! module_hid_driver {
-($($f:tt)*) => {
-    $crate::module_driver!(<T>, $crate::hid::Adapter<T>, { $($f)* });
-};
+    ($($f:tt)*) => {
+        $crate::module_driver!(<T>, $crate::hid::Adapter<T>, { $($f)* });
+    };
 }
