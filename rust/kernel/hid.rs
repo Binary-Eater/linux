@@ -153,7 +153,7 @@ impl<T: Driver + 'static> Adapter<T> {
         let buf_len: usize = match unsafe { *size }.try_into() {
             Ok(len) => len,
             Err(e) => {
-                pr_err!("Cannot fix report description due to length conversion failure: {}!",
+                pr_err!("Cannot fix report description due to length conversion failure: {}!\n",
                         e);
 
                 return buf;
@@ -167,7 +167,7 @@ impl<T: Driver + 'static> Adapter<T> {
         match rdesc_slice.len().try_into() {
             Ok(len) => unsafe { *size = len },
             Err(e) => {
-                pr_err!("Fixed report description will not be used due to {}!", e);
+                pr_err!("Fixed report description will not be used due to {}!\n", e);
 
                 return buf;
             },
