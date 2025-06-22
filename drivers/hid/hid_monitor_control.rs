@@ -3,39 +3,32 @@
 // Copyright (C) 2025 Rahul Rameshbabu <sergeantsagara@protonmail.com>
 
 use kernel::prelude::*;
-use kernel::hid::{
-    self,
-    Driver,
-};
+use kernel::hid;
 
 const USB_VENDOR_ID_NVIDIA: u32 = 0x0955;
 const USB_DEVICE_ID_NVIDIA_THUNDERSTRIKE_CONTROLLER: u32 = 0x7214;
 
 struct HidMonitorControl;
 
-#[vtable]
-impl Driver for HidMonitorControl {
-    fn probe(dev: &mut hid::Device, id: &hid::DeviceId) -> Result<()> {
-        /* TODO implement */
-        pr_info!("Probing HID device vendor: {} product: {} using Rust!\n", id.vendor(), id.product());
-        Ok(())
-    }
+kernel::hid_device_table!(
+    HID_TABLE,
+    MODULE_HID_TABLE,
+    <HidMonitorControl as hid::Driver>::IdInfo,
+    [(
+        hid::DeviceId::new_usb(USB_VENDOR_ID_NVIDIA, USB_DEVICE_ID_NVIDIA_THUNDERSTRIKE_CONTROLLER),
+        (),
+    )]
+);
 
-    fn remove(dev: &mut hid::Device) {
-        /* TODO implement */
-        pr_info!("Removing HID device vendor: {} product: {} using Rust!\n", dev.vendor(), dev.product());
-    }
+#[vtable]
+impl hid::Driver for HidMonitorControl {
+    type IdInfo = ();
+    const ID_TABLE: hid::IdTable<Self::IdInfo> = &HID_TABLE;
 }
 
 kernel::module_hid_driver! {
-    driver: HidMonitorControl,
-    id_table: [
-        kernel::usb_device! {
-            vendor: USB_VENDOR_ID_NVIDIA,
-            product: USB_DEVICE_ID_NVIDIA_THUNDERSTRIKE_CONTROLLER,
-        },
-    ],
-    name: "monitor_control",
+    type: HidMonitorControl,
+    name: "HidMonitorControl",
     author: "Rahul Rameshbabu <sergeantsagara@protonmail.com>",
     description: "Driver for the USB Monitor Control Class",
     license: "GPL",
