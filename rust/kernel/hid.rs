@@ -12,6 +12,19 @@ use crate::{
 };
 use core::marker::PhantomData;
 
+/*
+ * HID report descriptor main item contents
+ */
+pub const MAIN_ITEM_CONSTANT: u8      = bindings::HID_MAIN_ITEM_CONSTANT as u8;
+pub const MAIN_ITEM_VARIABLE: u8      = bindings::HID_MAIN_ITEM_VARIABLE as u8;
+pub const MAIN_ITEM_RELATIVE: u8      = bindings::HID_MAIN_ITEM_RELATIVE as u8;
+pub const MAIN_ITEM_WRAP: u8          = bindings::HID_MAIN_ITEM_WRAP as u8;
+pub const MAIN_ITEM_NONLINEAR: u8     = bindings::HID_MAIN_ITEM_NONLINEAR as u8;
+pub const MAIN_ITEM_NO_PREFERRED: u8  = bindings::HID_MAIN_ITEM_NO_PREFERRED as u8;
+pub const MAIN_ITEM_NULL_STATE: u8    = bindings::HID_MAIN_ITEM_NULL_STATE as u8;
+pub const MAIN_ITEM_VOLATILE: u8      = bindings::HID_MAIN_ITEM_VOLATILE as u8;
+pub const MAIN_ITEM_BUFFERED_BYTE: u8 = bindings::HID_MAIN_ITEM_BUFFERED_BYTE as u8;
+
 #[repr(transparent)]
 pub struct Device<Ctx: device::DeviceContext = device::Normal>(
     Opaque<bindings::hid_device>,
@@ -106,7 +119,7 @@ pub trait Driver: Send {
 
     const ID_TABLE: IdTable<Self::IdInfo>;
 
-    fn report_fixup<'a: 'b, 'b>(_hdev: &Device, _rdesc: &'b mut [u8]) -> &'a [u8] {
+    fn report_fixup<'a, 'b: 'a>(_hdev: &Device, _rdesc: &'b mut [u8]) -> &'a [u8] {
         build_error!(VTABLE_DEFAULT_ERROR)
     }
 }
