@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: GPL-2.0
+
+// Copyright (C) 2025 Rahul Rameshbabu <sergeantsagara@protonmail.com>
+
+use kernel::prelude::*;
+use kernel::hid;
+
+const USB_VENDOR_ID_SINOWEALTH: u32 = 0x258a;
+const USB_DEVICE_ID_GLORIOUS_MODEL_O: u32 = 0x0036;
+
+struct GloriousRust;
+
+kernel::hid_device_table!(
+    HID_TABLE,
+    MODULE_HID_TABLE,
+    <GloriousRust as hid::Driver>::IdInfo,
+    [(
+        hid::DeviceId::new_usb(
+            hid::Group::Generic,
+            USB_VENDOR_ID_SINOWEALTH,
+            USB_DEVICE_ID_GLORIOUS_MODEL_O,
+        ),
+        (),
+    )]
+);
+
+#[vtable]
+impl hid::Driver for GloriousRust {
+    type IdInfo = ();
+    const ID_TABLE: hid::IdTable<Self::IdInfo> = &HID_TABLE;
+
+    fn report_fixup<'a, 'b: 'a>(_hdev: &hid::Device, rdesc: &'b mut [u8]) -> &'a [u8] {
+        if rdesc.len() == 213 &&
+            rdesc[84] == 129 && rdesc[112] == 129 && rdesc[140] == 129 &&
+		        rdesc[85] == 3   && rdesc[113] == 3   && rdesc[141] == 3 {
+                pr_info!("patching Glorious Model O consumer control report descriptor\n");
+
+                rdesc[85] = hid::MAIN_ITEM_VARIABLE | hid::MAIN_ITEM_RELATIVE;
+                rdesc[113] = hid::MAIN_ITEM_VARIABLE | hid::MAIN_ITEM_RELATIVE;
+                rdesc[141] = hid::MAIN_ITEM_VARIABLE | hid::MAIN_ITEM_RELATIVE;
+            }
+
+        rdesc
+    }
+
+}
+
+kernel::module_hid_driver! {
+    type: GloriousRust,
+    name: "GloriousRust",
+    author: "Rahul Rameshbabu <sergeantsagara@protonmail.com>",
+    description: "Rust reference HID driver for Glorious Model O and O- mice",
+    license: "GPL",
+}
