@@ -25,6 +25,26 @@ pub const MAIN_ITEM_NULL_STATE: u8    = bindings::HID_MAIN_ITEM_NULL_STATE as u8
 pub const MAIN_ITEM_VOLATILE: u8      = bindings::HID_MAIN_ITEM_VOLATILE as u8;
 pub const MAIN_ITEM_BUFFERED_BYTE: u8 = bindings::HID_MAIN_ITEM_BUFFERED_BYTE as u8;
 
+pub enum Group {
+    Generic        = bindings::HID_GROUP_GENERIC as isize,
+    Multitouch     = bindings::HID_GROUP_MULTITOUCH as isize,
+    SensorHub      = bindings::HID_GROUP_SENSOR_HUB as isize,
+    MultitouchWin8 = bindings::HID_GROUP_MULTITOUCH_WIN_8 as isize,
+
+    RMI                 = bindings::HID_GROUP_RMI as isize,
+    Wacom               = bindings::HID_GROUP_WACOM as isize,
+    LogitechDJDevice    = bindings::HID_GROUP_LOGITECH_DJ_DEVICE as isize,
+    Steam               = bindings::HID_GROUP_STEAM as isize,
+    Logitech27MHzDevice = bindings::HID_GROUP_LOGITECH_27MHZ_DEVICE as isize,
+    Vivaldi             = bindings::HID_GROUP_VIVALDI as isize,
+}
+
+impl Group {
+    const fn into(self) ->  u16 {
+        self as u16
+    }
+}
+
 #[repr(transparent)]
 pub struct Device<Ctx: device::DeviceContext = device::Normal>(
     Opaque<bindings::hid_device>,
@@ -38,6 +58,14 @@ impl<Ctx: device::DeviceContext> Device<Ctx> {
 }
 
 impl Device {
+    pub fn bus(&self) -> u16 {
+        unsafe { *self.as_raw() }.bus
+    }
+
+    pub fn group(&self) -> u16 {
+        unsafe { *self.as_raw() }.group
+    }
+
     pub fn vendor(&self) -> u32 {
         unsafe { *self.as_raw() }.vendor
     }
@@ -53,13 +81,13 @@ impl Device {
 pub struct DeviceId(bindings::hid_device_id);
 
 impl DeviceId {
-    pub const fn new_usb(vendor: u32, product: u32) -> Self {
+    pub const fn new_usb(group: Group, vendor: u32, product: u32) -> Self {
         Self(bindings::hid_device_id {
             bus: 0x3, /* BUS_USB */
-            group: bindings::HID_GROUP_ANY as u16, /* TODO fix/use */
+            group: group.into(),
             vendor: vendor,
             product: product,
-            driver_data: 0, /* TODO fix/use */
+            driver_data: 0,
         })
     }
 
@@ -101,7 +129,6 @@ pub type IdTable<T> = &'static dyn kernel::device_id::IdTable<DeviceId, T>;
 /// Create a HID `IdTable` with its alias for modpost.
 #[macro_export]
 macro_rules! hid_device_table {
-    // TODO fill in
     ($table_name:ident, $module_table_name:ident, $id_info_type: ty, $table_data: expr) => {
         const $table_name: $crate::device_id::IdArray<
             $crate::hid::DeviceId,
