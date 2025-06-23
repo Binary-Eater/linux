@@ -15,7 +15,11 @@ kernel::hid_device_table!(
     MODULE_HID_TABLE,
     <HidMonitorControl as hid::Driver>::IdInfo,
     [(
-        hid::DeviceId::new_usb(USB_VENDOR_ID_NVIDIA, USB_DEVICE_ID_NVIDIA_THUNDERSTRIKE_CONTROLLER),
+        hid::DeviceId::new_usb(
+            hid::Group::Generic,
+            USB_VENDOR_ID_NVIDIA,
+            USB_DEVICE_ID_NVIDIA_THUNDERSTRIKE_CONTROLLER,
+        ),
         (),
     )]
 );
