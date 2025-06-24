@@ -2,6 +2,10 @@
 
 // Copyright (C) 2025 Rahul Rameshbabu <sergeantsagara@protonmail.com>
 
+//! Abstractions for the HID interface.
+//!
+//! C header: [`include/linux/hid.h`](srctree/include/linux/hid.h)
+
 use crate::{
     device,
     device_id::RawDeviceId,
@@ -45,6 +49,15 @@ impl Group {
     }
 }
 
+/// The HID device representation.
+///
+/// This structure represents the Rust abstraction for a C `struct hid_device`. The implementation
+/// abstracts the usage of an already existing C `struct hid_device` within Rust code that we get
+/// passed from the C side.
+///
+/// # Invariants
+///
+/// A [`Device`] instance represents a valid `struct hid_device` created by the C portion of the kernel.
 #[repr(transparent)]
 pub struct Device<Ctx: device::DeviceContext = device::Normal>(
     Opaque<bindings::hid_device>,
@@ -58,52 +71,67 @@ impl<Ctx: device::DeviceContext> Device<Ctx> {
 }
 
 impl Device {
+    /// Returns the HID transport bus ID.
     pub fn bus(&self) -> u16 {
+        // SAFETY: `self.as_raw` is a valid pointer to a `struct hid_device`
         unsafe { *self.as_raw() }.bus
     }
 
+    /// Returns the HID report group.
     pub fn group(&self) -> u16 {
+        // SAFETY: `self.as_raw` is a valid pointer to a `struct hid_device`
         unsafe { *self.as_raw() }.group
     }
 
+    /// Returns the HID vendor ID.
     pub fn vendor(&self) -> u32 {
+        // SAFETY: `self.as_raw` is a valid pointer to a `struct hid_device`
         unsafe { *self.as_raw() }.vendor
     }
 
+    /// Returns the HID product ID.
     pub fn product(&self) -> u32 {
+        // SAFETY: `self.as_raw` is a valid pointer to a `struct hid_device`
         unsafe { *self.as_raw() }.product
     }
 }
 
-/// Abstraction for bindings::hid_device_id.
+/// Abstraction for the HID device ID structure ([`struct hid_device_id`]).
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 pub struct DeviceId(bindings::hid_device_id);
 
 impl DeviceId {
+    /// Equivalent to C's `HID_USB_DEVICE` macro.
+    ///
+    /// Create a new `hid::DeviceId` from a group, vendor ID, and device ID
+    /// number.
     pub const fn new_usb(group: Group, vendor: u32, product: u32) -> Self {
         Self(bindings::hid_device_id {
             bus: 0x3, /* BUS_USB */
             group: group.into(),
-            vendor: vendor,
-            product: product,
+            vendor,
+            product,
             driver_data: 0,
         })
     }
 
-    /* TODO simplify with a non-exported macro rule? */
+    /// Returns the HID transport bus ID.
     pub fn bus(&self) -> u16 {
         self.0.bus
     }
 
+    /// Returns the HID report group.
     pub fn group(&self) -> u16 {
         self.0.group
     }
 
+    /// Returns the HID vendor ID.
     pub fn vendor(&self) -> u32 {
         self.0.vendor
     }
 
+    /// Returns the HID product ID.
     pub fn product(&self) -> u32 {
         self.0.product
     }
@@ -140,12 +168,66 @@ macro_rules! hid_device_table {
     };
 }
 
+/// The HID driver trait.
+///
+/// # Example
+///
+///```
+/// use kernel::hid;
+///
+/// const USB_VENDOR_ID_VALVE: u32 = 0x28de;
+/// const USB_DEVICE_ID_STEAM_DECK: u32 = 0x1205;
+///
+/// struct MyDriver;
+///
+/// kernel::hid_device_table!(
+///     HID_TABLE,
+///     MODULE_HID_TABLE,
+///     <MyDriver as hid::Driver>::IdInfo,
+///     [(
+///         hid::DeviceId::new_usb(
+///             hid::Group::Steam,
+///             USB_VENDOR_ID_VALVE,
+///             USB_DEVICE_ID_STEAM_DECK,
+///         ),
+///         (),
+///     )]
+/// );
+///
+/// #[vtable]
+/// impl hid::Driver for MyDriver {
+///     type IdInfo = ();
+///     const ID_TABLE: hid::IdTable<Self::IdInfo> = &HID_TABLE;
+///
+///     /// This function is optional to implement.
+///     fn report_fixup<'a, 'b: 'a>(_hdev: &hid::Device, rdesc: &'b mut [u8]) -> &'a [u8] {
+///         // Perform some report descriptor fixup
+///         rdesc
+///     }
+/// }
+///```
+/// Drivers must implement this trait in order to get a HID driver registered.
+/// Please refer to the `Adapter` documentation for an example.
 #[vtable]
 pub trait Driver: Send {
+    /// The type holding information about each device id supported by the driver.
+
+    // TODO: Use `associated_type_defaults` once stabilized:
+    //
+    // ```
+    // type IdInfo: 'static = ();
+    // ```
     type IdInfo: 'static;
 
+    /// The table of device ids supported by the driver.
     const ID_TABLE: IdTable<Self::IdInfo>;
 
+    /// Called before report descriptor parsing. Can be used to mutate the
+    /// report descriptor before the core HID logic processes the descriptor.
+    /// Useful for problematic report descriptors that prevent HID devices from
+    /// functioning correctly.
+    ///
+    /// Optional to implement.
     fn report_fixup<'a, 'b: 'a>(_hdev: &Device, _rdesc: &'b mut [u8]) -> &'a [u8] {
         build_error!(VTABLE_DEFAULT_ERROR)
     }
@@ -154,6 +236,8 @@ pub trait Driver: Send {
 /// An adapter for the registration of HID drivers.
 pub struct Adapter<T: Driver>(T);
 
+// SAFETY: A call to `unregister` for a given instance of `RegType` is guaranteed to be valid if
+// a preceding call to `register` has been successful.
 unsafe impl<T: Driver + 'static> driver::RegistrationOps for Adapter<T> {
     type RegType = bindings::hid_driver;
 
@@ -162,6 +246,7 @@ unsafe impl<T: Driver + 'static> driver::RegistrationOps for Adapter<T> {
         name: &'static CStr,
         module: &'static ThisModule,
     ) -> Result {
+        // SAFETY: It's safe to set the fields of `struct hid_driver` on initialization.
         let raw_hdrv = unsafe { &mut *hdrv.get() };
 
         raw_hdrv.name = name.as_char_ptr();
@@ -172,12 +257,14 @@ unsafe impl<T: Driver + 'static> driver::RegistrationOps for Adapter<T> {
             None
         };
 
+        // SAFETY: `hdrv` is guaranteed to be a valid `RegType`
         to_result(unsafe {
             bindings::__hid_register_driver(hdrv.get(), module.0, name.as_char_ptr())
         })
     }
 
     unsafe fn unregister(hdrv: &Opaque<Self::RegType>) {
+        // SAFETY: `hdrv` is guaranteed to be a valid `RegType`
         unsafe { bindings::hid_unregister_driver(hdrv.get()) }
     }
 }
@@ -188,8 +275,18 @@ impl<T: Driver + 'static> Adapter<T> {
         buf: *mut u8,
         size: *mut kernel::ffi::c_uint,
     ) -> *const u8 {
+        // SAFETY: The HID subsystem only ever calls the report_fixup callback
+        // with a valid pointer to a `struct hid_device`.
+        //
+        // INVARIANT: `hdev` is valid for the duration of
+        // `report_fixup_callback()`.
         let hdev = unsafe { &*hdev.cast::<Device>() };
 
+        // SAFETY: The HID subsystem only ever calls the report_fixup callback
+        // with a valid pointer to a `kernel::ffi::c_uint`.
+        //
+        // INVARIANT: `size` is valid for the duration of
+        // `report_fixup_callback()`.
         let buf_len: usize = match unsafe { *size }.try_into() {
             Ok(len) => len,
             Err(e) => {
@@ -200,7 +297,13 @@ impl<T: Driver + 'static> Adapter<T> {
             },
         };
 
-        /* Build a mutable Rust slice from buf and size */
+        // Build a mutable Rust slice from buf and size
+        //
+        // SAFETY: The HID subsystem only ever calls the report_fixup callback
+        // with a valid pointer to a `u8` buffer.
+        //
+        // INVARIANT: `buf` is valid for the duration of
+        // `report_fixup_callback()`.
         let mut rdesc_slice = unsafe { core::slice::from_raw_parts_mut(buf, buf_len) };
         let rdesc_slice = T::report_fixup(hdev, &mut rdesc_slice);
 
