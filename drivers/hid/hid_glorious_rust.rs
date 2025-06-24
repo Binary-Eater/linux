@@ -42,7 +42,6 @@ impl hid::Driver for GloriousRust {
 
         rdesc
     }
-
 }
 
 kernel::module_hid_driver! {
