@@ -162,15 +162,15 @@ unsafe impl<T: Driver + 'static> driver::RegistrationOps for Adapter<T> {
         name: &'static CStr,
         module: &'static ThisModule,
     ) -> Result {
-        unsafe {
-            (*hdrv.get()).name = name.as_char_ptr();
-            (*hdrv.get()).id_table = T::ID_TABLE.as_ptr();
-            (*hdrv.get()).report_fixup = if T::HAS_REPORT_FIXUP {
-                Some(Self::report_fixup_callback)
-            } else {
-                None
-            };
-        }
+        let raw_hdrv = unsafe { &mut *hdrv.get() };
+
+        raw_hdrv.name = name.as_char_ptr();
+        raw_hdrv.id_table = T::ID_TABLE.as_ptr();
+        raw_hdrv.report_fixup = if T::HAS_REPORT_FIXUP {
+            Some(Self::report_fixup_callback)
+        } else {
+            None
+        };
 
         to_result(unsafe {
             bindings::__hid_register_driver(hdrv.get(), module.0, name.as_char_ptr())
