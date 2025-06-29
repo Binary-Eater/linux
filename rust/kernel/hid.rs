@@ -16,35 +16,116 @@ use crate::{
 };
 use core::marker::PhantomData;
 
-/*
- * HID report descriptor main item contents
- */
+/// Indicates the item is static read-only.
+///
+/// Refer to [Device Class Definition for HID 1.11]
+/// Section 6.2.2.5 Input, Output, and Feature Items.
+///
+/// [Device Class Definition for HID 1.11]: https://www.usb.org/sites/default/files/hid1_11.pdf
 pub const MAIN_ITEM_CONSTANT: u8      = bindings::HID_MAIN_ITEM_CONSTANT as u8;
+/// Indicates the item represents data from a physical control.
+///
+/// Refer to [Device Class Definition for HID 1.11]
+/// Section 6.2.2.5 Input, Output, and Feature Items.
+///
+/// [Device Class Definition for HID 1.11]: https://www.usb.org/sites/default/files/hid1_11.pdf
 pub const MAIN_ITEM_VARIABLE: u8      = bindings::HID_MAIN_ITEM_VARIABLE as u8;
+/// Indicates the item should be treated as a relative change from the previous
+/// report.
+///
+/// Refer to [Device Class Definition for HID 1.11]
+/// Section 6.2.2.5 Input, Output, and Feature Items.
+///
+/// [Device Class Definition for HID 1.11]: https://www.usb.org/sites/default/files/hid1_11.pdf
 pub const MAIN_ITEM_RELATIVE: u8      = bindings::HID_MAIN_ITEM_RELATIVE as u8;
+/// Indicates the item should wrap around when reaching the extreme high or
+/// extreme low values.
+///
+/// Refer to [Device Class Definition for HID 1.11]
+/// Section 6.2.2.5 Input, Output, and Feature Items.
+///
+/// [Device Class Definition for HID 1.11]: https://www.usb.org/sites/default/files/hid1_11.pdf
 pub const MAIN_ITEM_WRAP: u8          = bindings::HID_MAIN_ITEM_WRAP as u8;
+/// Indicates the item should wrap around when reaching the extreme high or
+/// extreme low values.
+///
+/// Refer to [Device Class Definition for HID 1.11]
+/// Section 6.2.2.5 Input, Output, and Feature Items.
+///
+/// [Device Class Definition for HID 1.11]: https://www.usb.org/sites/default/files/hid1_11.pdf
 pub const MAIN_ITEM_NONLINEAR: u8     = bindings::HID_MAIN_ITEM_NONLINEAR as u8;
+/// Indicates whether the control has a preferred state it will physically
+/// return to without user intervention.
+///
+/// Refer to [Device Class Definition for HID 1.11]
+/// Section 6.2.2.5 Input, Output, and Feature Items.
+///
+/// [Device Class Definition for HID 1.11]: https://www.usb.org/sites/default/files/hid1_11.pdf
 pub const MAIN_ITEM_NO_PREFERRED: u8  = bindings::HID_MAIN_ITEM_NO_PREFERRED as u8;
+/// Indicates whether the control has a physical state where it will not send
+/// any reports.
+///
+/// Refer to [Device Class Definition for HID 1.11]
+/// Section 6.2.2.5 Input, Output, and Feature Items.
+///
+/// [Device Class Definition for HID 1.11]: https://www.usb.org/sites/default/files/hid1_11.pdf
 pub const MAIN_ITEM_NULL_STATE: u8    = bindings::HID_MAIN_ITEM_NULL_STATE as u8;
+/// Indicates whether the control requires host system logic to change state.
+///
+/// Refer to [Device Class Definition for HID 1.11]
+/// Section 6.2.2.5 Input, Output, and Feature Items.
+///
+/// [Device Class Definition for HID 1.11]: https://www.usb.org/sites/default/files/hid1_11.pdf
 pub const MAIN_ITEM_VOLATILE: u8      = bindings::HID_MAIN_ITEM_VOLATILE as u8;
+/// Indicates whether the item is fixed size or a variable buffer of bytes.
+///
+/// Refer to [Device Class Definition for HID 1.11]
+/// Section 6.2.2.5 Input, Output, and Feature Items.
+///
+/// [Device Class Definition for HID 1.11]: https://www.usb.org/sites/default/files/hid1_11.pdf
 pub const MAIN_ITEM_BUFFERED_BYTE: u8 = bindings::HID_MAIN_ITEM_BUFFERED_BYTE as u8;
 
+/// HID device groups are intended to help categories HID devices based on a set
+/// of common quirks and logic that they will require to function correctly.
 pub enum Group {
+    /// Indicates a generic device that should need no custom logic from the
+    /// core HID stack.
     Generic        = bindings::HID_GROUP_GENERIC as isize,
+    /// Maps multitouch devices to hid-multitouch instead of hid-generic.
     Multitouch     = bindings::HID_GROUP_MULTITOUCH as isize,
+    /// Used for autodetecing and mapping of HID sensor hubs to
+    /// hid-sensor-hub.
     SensorHub      = bindings::HID_GROUP_SENSOR_HUB as isize,
+    /// Used for autodetecing and mapping Win 8 multitouch devices to set the
+    /// needed quirks.
     MultitouchWin8 = bindings::HID_GROUP_MULTITOUCH_WIN_8 as isize,
 
+    /// Used to distinguish Synpatics touchscreens from other products. The
+    /// touchscreens will be handled by hid-multitouch instead, while everything
+    /// else will be managed by hid-rmi.
     RMI                 = bindings::HID_GROUP_RMI as isize,
+    /// Used for hid-core handling to automatically identify Wacom devices and
+    /// have them probed by hid-wacom.
     Wacom               = bindings::HID_GROUP_WACOM as isize,
+    /// Used by logitech-djreceiver and logitech-djdevice to autodetect if
+    /// devices paied to the DJ receivers are DJ devices and handle them with
+    /// the device driver.
     LogitechDJDevice    = bindings::HID_GROUP_LOGITECH_DJ_DEVICE as isize,
+    /// Since the Valve Steam Controller only has vendor-specific usages,
+    /// prevent hid-generic from parsing its reports since there would be
+    /// nothing hid-generic could do for the device.
     Steam               = bindings::HID_GROUP_STEAM as isize,
+    /// Used to differentiate 27 Mhz frequency Logitech DJ devices from other
+    /// Logitech DJ devices.
     Logitech27MHzDevice = bindings::HID_GROUP_LOGITECH_27MHZ_DEVICE as isize,
+    /// Used for autodetecting and mapping Vivaldi devices to hid-vivaldi.
     Vivaldi             = bindings::HID_GROUP_VIVALDI as isize,
 }
 
 impl Group {
+    /// Internal function used to convert Group variants into u16
     const fn into(self) ->  u16 {
+        // variants assigned constants that can be represented as u16
         self as u16
     }
 }
@@ -211,7 +292,6 @@ macro_rules! hid_device_table {
 #[vtable]
 pub trait Driver: Send {
     /// The type holding information about each device id supported by the driver.
-
     // TODO: Use `associated_type_defaults` once stabilized:
     //
     // ```
@@ -304,10 +384,15 @@ impl<T: Driver + 'static> Adapter<T> {
         //
         // INVARIANT: `buf` is valid for the duration of
         // `report_fixup_callback()`.
-        let mut rdesc_slice = unsafe { core::slice::from_raw_parts_mut(buf, buf_len) };
-        let rdesc_slice = T::report_fixup(hdev, &mut rdesc_slice);
+        let rdesc_slice = unsafe { core::slice::from_raw_parts_mut(buf, buf_len) };
+        let rdesc_slice = T::report_fixup(hdev, rdesc_slice);
 
         match rdesc_slice.len().try_into() {
+            // SAFETY: The HID subsystem only ever calls the report_fixup
+            // callback with a valid pointer to a `kernel::ffi::c_uint`.
+            //
+            // INVARIANT: `size` is valid for the duration of
+            // `report_fixup_callback()`.
             Ok(len) => unsafe { *size = len },
             Err(e) => {
                 pr_err!("Fixed report description will not be used due to {}!\n", e);
@@ -320,6 +405,19 @@ impl<T: Driver + 'static> Adapter<T> {
     }
 }
 
+/// Declares a kernel module that exposes a single HID driver.
+///
+/// # Example
+///
+///```ignore
+/// kernel::module_hid_driver! {
+///     type: MyDriver,
+///     name: "Module name",
+///     authors: ["Author name"],
+///     description: "Description",
+///     license: "GPL",
+/// }
+///```
 #[macro_export]
 macro_rules! module_hid_driver {
     ($($f:tt)*) => {
