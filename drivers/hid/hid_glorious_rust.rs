@@ -2,6 +2,8 @@
 
 // Copyright (C) 2025 Rahul Rameshbabu <sergeantsagara@protonmail.com>
 
+//! Rust reference HID driver for Glorious Model O and O- mice
+
 use kernel::prelude::*;
 use kernel::hid;
 
