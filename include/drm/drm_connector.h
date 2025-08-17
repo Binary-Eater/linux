@@ -2342,8 +2342,6 @@ int drmm_connector_hdmi_init(struct drm_device *dev,
 			     struct i2c_adapter *ddc,
 			     unsigned long supported_formats,
 			     unsigned int max_bpc);
-// TODO guard with some CONFIG option in the future
-int drm_connector_init_rust(struct drm_connector *connector);
 void drm_connector_attach_edid_property(struct drm_connector *connector);
 int drm_connector_register(struct drm_connector *connector);
 int drm_connector_dynamic_register(struct drm_connector *connector);
@@ -2352,8 +2350,21 @@ int drm_connector_attach_encoder(struct drm_connector *connector,
 				      struct drm_encoder *encoder);
 
 void drm_connector_cleanup(struct drm_connector *connector);
-// TODO guard with some CONFIG option in the future
+
+#if IS_ENABLED(CONFIG_RUST)
+int drm_connector_init_rust(struct drm_connector *connector);
 void drm_connector_cleanup_rust(struct drm_connector *connector);
+#else
+static inline int drm_connector_init_rust(struct drm_connector *connector)
+{
+	return 0;
+}
+
+static inline void drm_connector_cleanup_rust(struct drm_connector *connector)
+{
+}
+#endif
+
 
 static inline unsigned int drm_connector_index(const struct drm_connector *connector)
 {
