@@ -43,6 +43,22 @@ pub unsafe extern "C" fn drm_connector_init_rust(raw_connector: *mut bindings::d
     return 0;
 }
 
+/// C entry point for tearing down the Rust extension for a DRM connector.
+///
+/// When a DRM connector is being cleaned up from the core C stack, the Rust
+/// `Connector` extension instance needs to be dropped.
+///
+/// * `raw_connector`: A pointer to `struct drm_connector`, the C DRM connector
+///   implementation.
+///
+/// # Safety
+///
+/// * `raw_connector`: must be valid and have the `rust` field initialized by
+///   `drm_connector_init_rust`.
+///
+/// `raw_connector` must remain valid for the duration of the function call.
+///
+/// [`struct drm_connector`]: srctree/include/drm/drm_connector.h
 #[export]
 pub unsafe extern "C" fn drm_connector_cleanup_rust(raw_connector: *mut bindings::drm_connector) {
     drop(unsafe{ <Pin<KBox<Connector>>>::from_foreign((*raw_connector).rust) });
