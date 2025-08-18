@@ -8,6 +8,16 @@ use core::marker::PhantomPinned;
 use kernel::prelude::*;
 use kernel::types::{ForeignOwnable, Opaque};
 
+/// A DRM connector representation that extends `struct drm_connector`.
+///
+/// This connector implementation enables DRM connector API development in Rust
+/// and exposing said functionality to both C and Rust DRM consumers.
+///
+/// # Invariants
+///
+/// `raw_connector` is a valid pointer to a `struct drm_connector`.
+///
+/// [`struct drm_connector`]: srctree/include/drm/drm_connector.h
 #[pin_data]
 pub struct Connector {
     #[pin]
@@ -33,7 +43,7 @@ pub struct Connector {
 /// # Safety
 ///
 /// * `raw_connector` must point to a valid, though partially initialized,
-/// `struct drm_connector`.
+///   `struct drm_connector` where the `rust` field is not already initialized.
 ///
 /// `raw_connector` must point to a valid `struct drm_connector` for the
 /// duration of the function call.
@@ -53,11 +63,15 @@ pub unsafe extern "C" fn drm_connector_init_rust(raw_connector: *mut bindings::d
         Err(_) => return -ENOMEM.to_errno(),
     };
 
-    unsafe {
-        (*raw_connector).rust = unsafe { connector.into_foreign() };
-    }
+    // Provide the C `struct drm_connector` instance a handle to the Rust
+    // `drm::connector:Connector` implementation for Rust connector APIs and the
+    // `drm_connector_cleanup_rust` cleanup call.
+    //
+    // SAFETY: `raw_connector` is a valid pointer with a `rust` field that does
+    // not already point to an initialized `drm::connector::Connector`
+    unsafe { (*raw_connector).rust = connector.into_foreign(); }
 
-    return 0;
+    0
 }
 
 /// C entry point for tearing down the Rust extension for a DRM connector.
@@ -71,14 +85,17 @@ pub unsafe extern "C" fn drm_connector_init_rust(raw_connector: *mut bindings::d
 /// # Safety
 ///
 /// * `raw_connector` must be valid and have the `rust` field initialized by
-///   `drm_connector_init_rust`.
+///   `drm_connector_init_rust()`.
 ///
 /// `raw_connector` must remain valid for the duration of the function call and
-/// the `rust` field must be preserved since the `drm_connector_init_rust`
+/// the `rust` field must be preserved since the `drm_connector_init_rust()`
 /// invocation.
 ///
 /// [`struct drm_connector`]: srctree/include/drm/drm_connector.h
 #[export]
 pub unsafe extern "C" fn drm_connector_cleanup_rust(raw_connector: *mut bindings::drm_connector) {
+    // SAFETY: By the safety requirements of this function, the `rust` field of
+    // `raw_connector`, a valid pointer, is initialized by the `into_foreign()`
+    // call made by `drm_connector_init_rust()`.
     drop(unsafe{ <Pin<KBox<Connector>>>::from_foreign((*raw_connector).rust) });
 }
