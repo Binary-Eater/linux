@@ -22,6 +22,23 @@ pub struct Connector {
     _pin: PhantomPinned,
 }
 
+/// C entry point for initializing the Rust extension for a DRM connector.
+///
+/// When a DRM connector is being initialized in the core C stack, the Rust
+/// `Connector` extension needs to be allocated and initialized.
+///
+/// * `raw_connector`: A pointer to `struct drm_connector`, the C DRM connector
+///   implementation.
+///
+/// # Safety
+///
+/// * `raw_connector` must point to a valid, though partially initialized,
+/// `struct drm_connector`.
+///
+/// `raw_connector` must point to a valid `struct drm_connector` for the
+/// duration of the function call.
+///
+/// [`struct drm_connector`]: srctree/include/drm/drm_connector.h
 #[export]
 pub unsafe extern "C" fn drm_connector_init_rust(raw_connector: *mut bindings::drm_connector) -> kernel::ffi::c_int {
     let connector = match KBox::pin_init(
@@ -53,10 +70,12 @@ pub unsafe extern "C" fn drm_connector_init_rust(raw_connector: *mut bindings::d
 ///
 /// # Safety
 ///
-/// * `raw_connector`: must be valid and have the `rust` field initialized by
+/// * `raw_connector` must be valid and have the `rust` field initialized by
 ///   `drm_connector_init_rust`.
 ///
-/// `raw_connector` must remain valid for the duration of the function call.
+/// `raw_connector` must remain valid for the duration of the function call and
+/// the `rust` field must be preserved since the `drm_connector_init_rust`
+/// invocation.
 ///
 /// [`struct drm_connector`]: srctree/include/drm/drm_connector.h
 #[export]
