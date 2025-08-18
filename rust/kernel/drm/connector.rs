@@ -50,7 +50,9 @@ pub struct Connector {
 ///
 /// [`struct drm_connector`]: srctree/include/drm/drm_connector.h
 #[export]
-pub unsafe extern "C" fn drm_connector_init_rust(raw_connector: *mut bindings::drm_connector) -> kernel::ffi::c_int {
+pub unsafe extern "C" fn drm_connector_init_rust(
+    raw_connector: *mut bindings::drm_connector,
+) -> kernel::ffi::c_int {
     let connector = match KBox::pin_init(
         try_pin_init!(Connector{
             raw_connector <- Opaque::new(raw_connector),
@@ -69,7 +71,7 @@ pub unsafe extern "C" fn drm_connector_init_rust(raw_connector: *mut bindings::d
     //
     // SAFETY: `raw_connector` is a valid pointer with a `rust` field that does
     // not already point to an initialized `drm::connector::Connector`
-    unsafe { (*raw_connector).rust = connector.into_foreign(); }
+    unsafe { (*raw_connector).rust = connector.into_foreign() };
 
     0
 }
@@ -97,5 +99,5 @@ pub unsafe extern "C" fn drm_connector_cleanup_rust(raw_connector: *mut bindings
     // SAFETY: By the safety requirements of this function, the `rust` field of
     // `raw_connector`, a valid pointer, is initialized by the `into_foreign()`
     // call made by `drm_connector_init_rust()`.
-    drop(unsafe{ <Pin<KBox<Connector>>>::from_foreign((*raw_connector).rust) });
+    drop(unsafe { <Pin<KBox<Connector>>>::from_foreign((*raw_connector).rust) });
 }
